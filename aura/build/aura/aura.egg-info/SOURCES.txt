@@ -1,0 +1,16 @@
+package.xml
+setup.cfg
+setup.py
+aura/__init__.py
+aura/my_robot_driver.py
+aura.egg-info/PKG-INFO
+aura.egg-info/SOURCES.txt
+aura.egg-info/dependency_links.txt
+aura.egg-info/entry_points.txt
+aura.egg-info/requires.txt
+aura.egg-info/top_level.txt
+aura.egg-info/zip-safe
+launch/robot_launch.py
+resource/aura
+resource/my_robot.urdf
+worlds/my_world.wbt

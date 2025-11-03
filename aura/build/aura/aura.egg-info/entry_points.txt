@@ -1,0 +1,3 @@
+[console_scripts]
+my_robot_driver = aura.my_robot_driver:main
+

@@ -1,0 +1,94 @@
+[0.128s] DEBUG:colcon:Command line arguments: ['/usr/bin/colcon', 'build', '--symlink-install']
+[0.128s] DEBUG:colcon:Parsed command line arguments: Namespace(log_base=None, log_level=None, verb_name='build', build_base='build', install_base='install', merge_install=False, symlink_install=True, test_result_base=None, continue_on_error=False, executor='parallel', parallel_workers=22, event_handlers=None, ignore_user_meta=False, metas=['./colcon.meta'], base_paths=['.'], packages_ignore=None, packages_ignore_regex=None, paths=None, packages_up_to=None, packages_up_to_regex=None, packages_above=None, packages_above_and_dependencies=None, packages_above_depth=None, packages_select_by_dep=None, packages_skip_by_dep=None, packages_skip_up_to=None, packages_select_build_failed=False, packages_skip_build_finished=False, packages_select_test_failures=False, packages_skip_test_passed=False, packages_select=None, packages_skip=None, packages_select_regex=None, packages_skip_regex=None, packages_start=None, packages_end=None, cmake_args=None, cmake_target=None, cmake_target_skip_unavailable=False, cmake_clean_cache=False, cmake_clean_first=False, cmake_force_configure=False, ament_cmake_args=None, catkin_cmake_args=None, catkin_skip_building_tests=False, mixin_files=None, mixin=None, verb_parser=<colcon_mixin.mixin.mixin_argument.MixinArgumentDecorator object at 0x79cd0c167fa0>, verb_extension=<colcon_core.verb.build.BuildVerb object at 0x79cd0c328f10>, main=<bound method BuildVerb.main of <colcon_core.verb.build.BuildVerb object at 0x79cd0c328f10>>, mixin_verb=('build',))
+[0.285s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) check parameters
+[0.286s] INFO:colcon.colcon_metadata.package_discovery.colcon_meta:Using configuration from '/root/.colcon/metadata/default/Gazebo.meta'
+[0.286s] INFO:colcon.colcon_metadata.package_discovery.colcon_meta:Using configuration from '/root/.colcon/metadata/default/fastdds.meta'
+[0.287s] INFO:colcon.colcon_metadata.package_discovery.colcon_meta:Using configuration from '/root/.colcon/metadata/default/fastrtps.meta'
+[0.287s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) check parameters
+[0.287s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) check parameters
+[0.287s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) check parameters
+[0.287s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) discover
+[0.287s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) discover
+[0.287s] INFO:colcon.colcon_core.package_discovery:Crawling recursively for packages in '/root/ros2_ws/src/aura'
+[0.287s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ignore', 'ignore_ament_install']
+[0.287s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore'
+[0.287s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore_ament_install'
+[0.287s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_pkg']
+[0.287s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_pkg'
+[0.287s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_meta']
+[0.287s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_meta'
+[0.287s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ros']
+[0.287s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ros'
+[0.301s] DEBUG:colcon.colcon_core.package_identification:Package '.' with type 'ros.ament_python' and name 'aura'
+[0.302s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) using defaults
+[0.302s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) discover
+[0.302s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) using defaults
+[0.302s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) discover
+[0.302s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) using defaults
+[0.334s] Level 5:colcon.colcon_core.verb:set package 'aura' build argument 'cmake_args' from command line to 'None'
+[0.334s] Level 5:colcon.colcon_core.verb:set package 'aura' build argument 'cmake_target' from command line to 'None'
+[0.334s] Level 5:colcon.colcon_core.verb:set package 'aura' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.334s] Level 5:colcon.colcon_core.verb:set package 'aura' build argument 'cmake_clean_cache' from command line to 'False'
+[0.334s] Level 5:colcon.colcon_core.verb:set package 'aura' build argument 'cmake_clean_first' from command line to 'False'
+[0.334s] Level 5:colcon.colcon_core.verb:set package 'aura' build argument 'cmake_force_configure' from command line to 'False'
+[0.334s] Level 5:colcon.colcon_core.verb:set package 'aura' build argument 'ament_cmake_args' from command line to 'None'
+[0.334s] Level 5:colcon.colcon_core.verb:set package 'aura' build argument 'catkin_cmake_args' from command line to 'None'
+[0.334s] Level 5:colcon.colcon_core.verb:set package 'aura' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.334s] DEBUG:colcon.colcon_core.verb:Building package 'aura' with the following arguments: {'ament_cmake_args': None, 'build_base': '/root/ros2_ws/src/aura/build/aura', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/root/ros2_ws/src/aura/install/aura', 'merge_install': False, 'path': '/root/ros2_ws/src/aura', 'symlink_install': True, 'test_result_base': None}
+[0.334s] INFO:colcon.colcon_core.executor:Executing jobs using 'parallel' executor
+[0.335s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete
+[0.335s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/root/ros2_ws/src/aura' with build type 'ament_python'
+[0.336s] Level 1:colcon.colcon_core.shell:create_environment_hook('aura', 'ament_prefix_path')
+[0.339s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_core.shell.bat': Not used on non-Windows systems
+[0.339s] INFO:colcon.colcon_core.shell:Creating environment hook '/root/ros2_ws/src/aura/install/aura/share/aura/hook/ament_prefix_path.ps1'
+[0.340s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/root/ros2_ws/src/aura/install/aura/share/aura/hook/ament_prefix_path.dsv'
+[0.341s] INFO:colcon.colcon_core.shell:Creating environment hook '/root/ros2_ws/src/aura/install/aura/share/aura/hook/ament_prefix_path.sh'
+[0.342s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.342s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.638s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/root/ros2_ws/src/aura'
+[0.639s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.639s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[1.114s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/root/ros2_ws/src/aura/build/aura': PYTHONPATH=/root/ros2_ws/src/aura/build/aura/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/root/ros2_ws/src/aura/install/aura/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /root/ros2_ws/src/aura/build/aura/build --no-deps symlink_data
+[1.678s] Level 1:colcon.colcon_core.shell:create_environment_hook('aura', 'pythonpath_develop')
+[1.679s] INFO:colcon.colcon_core.shell:Creating environment hook '/root/ros2_ws/src/aura/build/aura/share/aura/hook/pythonpath_develop.ps1'
+[1.680s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/root/ros2_ws/src/aura/build/aura' returned '0': PYTHONPATH=/root/ros2_ws/src/aura/build/aura/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/root/ros2_ws/src/aura/install/aura/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /root/ros2_ws/src/aura/build/aura/build --no-deps symlink_data
+[1.681s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/root/ros2_ws/src/aura/build/aura/share/aura/hook/pythonpath_develop.dsv'
+[1.681s] INFO:colcon.colcon_core.shell:Creating environment hook '/root/ros2_ws/src/aura/build/aura/share/aura/hook/pythonpath_develop.sh'
+[1.686s] Level 1:colcon.colcon_core.environment:checking '/root/ros2_ws/src/aura/install/aura' for CMake module files
+[1.687s] Level 1:colcon.colcon_core.environment:checking '/root/ros2_ws/src/aura/install/aura' for CMake config files
+[1.689s] Level 1:colcon.colcon_core.environment:checking '/root/ros2_ws/src/aura/install/aura/lib'
+[1.690s] Level 1:colcon.colcon_core.environment:checking '/root/ros2_ws/src/aura/install/aura/bin'
+[1.690s] Level 1:colcon.colcon_core.environment:checking '/root/ros2_ws/src/aura/install/aura/lib/pkgconfig/aura.pc'
+[1.691s] Level 1:colcon.colcon_core.environment:checking '/root/ros2_ws/src/aura/install/aura/lib/python3.10/site-packages'
+[1.691s] Level 1:colcon.colcon_core.shell:create_environment_hook('aura', 'pythonpath')
+[1.692s] INFO:colcon.colcon_core.shell:Creating environment hook '/root/ros2_ws/src/aura/install/aura/share/aura/hook/pythonpath.ps1'
+[1.693s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/root/ros2_ws/src/aura/install/aura/share/aura/hook/pythonpath.dsv'
+[1.694s] INFO:colcon.colcon_core.shell:Creating environment hook '/root/ros2_ws/src/aura/install/aura/share/aura/hook/pythonpath.sh'
+[1.696s] Level 1:colcon.colcon_core.environment:checking '/root/ros2_ws/src/aura/install/aura/bin'
+[1.696s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(aura)
+[1.696s] INFO:colcon.colcon_core.shell:Creating package script '/root/ros2_ws/src/aura/install/aura/share/aura/package.ps1'
+[1.697s] INFO:colcon.colcon_core.shell:Creating package descriptor '/root/ros2_ws/src/aura/install/aura/share/aura/package.dsv'
+[1.698s] INFO:colcon.colcon_core.shell:Creating package script '/root/ros2_ws/src/aura/install/aura/share/aura/package.sh'
+[1.699s] INFO:colcon.colcon_core.shell:Creating package script '/root/ros2_ws/src/aura/install/aura/share/aura/package.bash'
+[1.699s] INFO:colcon.colcon_core.shell:Creating package script '/root/ros2_ws/src/aura/install/aura/share/aura/package.zsh'
+[1.700s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/root/ros2_ws/src/aura/install/aura/share/colcon-core/packages/aura)
+[1.701s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:closing loop
+[1.701s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:loop closed
+[1.701s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete finished with '0'
+[1.701s] DEBUG:colcon.colcon_core.event_reactor:joining thread
+[1.708s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.notify_send': Could not find 'notify-send'
+[1.708s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.terminal_notifier': Not used on non-Darwin systems
+[1.708s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.win32': Not used on non-Windows systems
+[1.709s] INFO:colcon.colcon_notification.desktop_notification:Sending desktop notification using 'notify2'
+[1.712s] DEBUG:colcon.colcon_notification.desktop_notification.notify2:Failed to initialize notify2: org.freedesktop.DBus.Error.Spawn.ExecFailed: /usr/bin/dbus-launch terminated abnormally without any error message
+[1.712s] DEBUG:colcon.colcon_core.event_reactor:joined thread
+[1.713s] INFO:colcon.colcon_core.shell:Creating prefix script '/root/ros2_ws/src/aura/install/local_setup.ps1'
+[1.715s] INFO:colcon.colcon_core.shell:Creating prefix util module '/root/ros2_ws/src/aura/install/_local_setup_util_ps1.py'
+[1.717s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/root/ros2_ws/src/aura/install/setup.ps1'
+[1.720s] INFO:colcon.colcon_core.shell:Creating prefix script '/root/ros2_ws/src/aura/install/local_setup.sh'
+[1.721s] INFO:colcon.colcon_core.shell:Creating prefix util module '/root/ros2_ws/src/aura/install/_local_setup_util_sh.py'
+[1.722s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/root/ros2_ws/src/aura/install/setup.sh'
+[1.725s] INFO:colcon.colcon_core.shell:Creating prefix script '/root/ros2_ws/src/aura/install/local_setup.bash'
+[1.726s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/root/ros2_ws/src/aura/install/setup.bash'
+[1.729s] INFO:colcon.colcon_core.shell:Creating prefix script '/root/ros2_ws/src/aura/install/local_setup.zsh'
+[1.729s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/root/ros2_ws/src/aura/install/setup.zsh'
