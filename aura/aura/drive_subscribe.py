@@ -8,9 +8,14 @@ class MinimalSubscriber(Node):
 
     def __init__(self):
         super().__init__('minimal_subscriber')
-        self.subscription = self.create_subscription(
+        self.leftSub = self.create_subscription(
             String,
-            'topic',
+            'leftWheelSpeed',
+            self.listener_callback,
+            10)
+        self.rightSub = self.create_subscription(
+            String,
+            'rightWheelSpeed',
             self.listener_callback,
             10)
         self.subscription  # prevent unused variable warning
