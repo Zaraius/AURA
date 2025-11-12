@@ -29,7 +29,8 @@ setup(
         'console_scripts': [
             'my_robot_driver = aura.my_robot_driver:main',
             'subscribe = aura.drive_subscribe:main',
-            'teleop = aura.teleop_ackermann:main'
+            'teleop = aura.teleop_ackermann:main',
+            'ackermann_driver = aura.ackermann_driver:main',
         ],
     },
 )
