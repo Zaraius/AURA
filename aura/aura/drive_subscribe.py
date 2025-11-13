@@ -73,22 +73,46 @@ class MotorController(Node):
         self.motor_right = CytronMD(MODE.PWM_DIR, AN2, IN2)  # Right: PWM=19, DIR=13
 
         # Subscriptions
-        self.throttle_sub = self.create_subscription(
-            Float64, 'throttleSpeed', self.throttle_callback, 10)
-        self.turn_sub = self.create_subscription(
-            Float64, 'turnAngle', self.turn_callback, 10)
+        self.drive_sub = self.create_subscription(
+            Float64, 'commanded', self.drive_callback, 10)
 
-    def throttle_callback(self, msg):
-        throttle = max(min(msg.data, 1.0), -1.0)  # Clamp to [-1, 1]
-        self.get_logger().info(f'Throttle Speed [-1, 1]: {throttle}')
-        speed = throttle * 255  # Map to [-255, 255]
-        self.motor_left.setSpeed(int(speed))
-        self.motor_right.setSpeed(int(speed))
+    def drive_callback(self, msg):
+        # Safely get the data field
+        try:
+            data = msg.data
+        except Exception:
+            self.get_logger().error('Received message without data field')
+            return
 
-    def turn_callback(self, msg):
-        turn = max(min(msg.data, math.pi), -math.pi)  # Clamp to [-π, π]
-        self.get_logger().info(f'Turn Angle [-PI, PI]: {turn}')
-        pass
+        # Determine if data is a sequence (list/tuple/array) or a scalar
+        if hasattr(data, '__len__') and not isinstance(data, (float, int)):
+            if len(data) < 2:
+                self.get_logger().error('Expected at least 2 elements in msg.data for left/right throttle')
+                return
+            throttle_left = max(min(data[0], 1.0), -1.0)
+            throttle_right = max(min(data[1], 1.0), -1.0)
+            # Pass-through angles (if present)
+            fl_angle = data[2] if len(data) > 2 else None
+            fr_angle = data[3] if len(data) > 3 else None
+        else:
+            # Scalar case: apply same throttle to both motors
+            try:
+                val = float(data)
+            except Exception:
+                self.get_logger().error('Unable to parse scalar throttle value')
+                return
+            throttle_left = throttle_right = max(min(val, 1.0), -1.0)
+            fl_angle = fr_angle = None
+
+        # Map [-1, 1] throttle to [-255, 255] motor command
+        speed_left = int(throttle_left * 255)
+        speed_right = int(throttle_right * 255)
+
+        self.get_logger().info(f'Throttle L/R: {throttle_left:.3f}/{throttle_right:.3f} -> Speed L/R: {speed_left}/{speed_right}')
+        self.motor_left.setSpeed(speed_left)
+        self.motor_right.setSpeed(speed_right)
+
+        # If you need to use angles elsewhere, they are available as fl_angle, fr_angle
 
     def cleanup(self):
         self.motor_left.setSpeed(0)
