@@ -30,6 +30,7 @@ setup(
             'my_robot_driver = aura.my_robot_driver:main',
             'subscribe = aura.drive_subscribe:main',
             'teleop = aura.teleop_ackermann:main',
+            'stepper = aura.stepper:main',
             'ackermann_driver = aura.ackermann_driver:main',
         ],
     },

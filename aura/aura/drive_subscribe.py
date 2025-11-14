@@ -74,7 +74,7 @@ class MotorController(Node):
 
         # Subscriptions
         self.drive_sub = self.create_subscription(
-            Float64, 'commanded', self.drive_callback, 10)
+            Float64, '/commanded', self.drive_callback, 10)
 
     def drive_callback(self, msg):
         # Safely get the data field
