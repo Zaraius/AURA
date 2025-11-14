@@ -19,7 +19,7 @@ class AckermannTeleop(Node):
         self.joy_sub = self.create_subscription(Joy, '/joy', self.joy_callback, 10)
 
         # Controller mapping (adjust for your joystick)
-        self.axis_speed = 3    # Left stick vertical
+        self.axis_speed = 1    # Left stick vertical
         self.axis_steer = 2    # Right stick horizontal
         self.enable_button = 5 # Right bumper
 
@@ -32,10 +32,13 @@ class AckermannTeleop(Node):
         self.WHEEL_RADIUS = 0.025
         self.WHEELBASE = 0.09   # distance between front and rear axles
         self.TRACK_WIDTH = 0.09 # distance between left/right wheels
+
+        self.enabled = False
     
     def joy_callback(self, msg: Joy):
         # Only act when enable button (RB) is pressed
         if len(msg.buttons) > self.enable_button and msg.buttons[self.enable_button]:
+            self.enabled = True
             # Ackermann command
             drive_msg = AckermannDriveStamped()
             drive_msg.drive.speed = msg.axes[self.axis_speed] * self.speed_scale
@@ -69,6 +72,15 @@ class AckermannTeleop(Node):
                 f"Speed: {forward_speed:.2f}, Steer: {angular_speed:.2f}, "
                 f"L_wheel: {command_motor_left:.2f}, R_wheel: {command_motor_right:.2f}"
             )
+            return
+        if self.enabled:
+            self.enabled = False  # reset
+
+            msg_out = Float64MultiArray()
+            msg_out.data = [0.0, 0.0, 0.0, 0.0]
+            self.commanded_pub.publish(msg_out)
+
+            self.get_logger().info("Commanded STOP after release")
 
 def main(args=None):
     rclpy.init(args=args)

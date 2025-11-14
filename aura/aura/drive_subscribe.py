@@ -4,6 +4,7 @@ from std_msgs.msg import Float64
 import RPi.GPIO as GPIO
 import time
 import math
+from std_msgs.msg import Float64MultiArray
 
 # GPIO pin constants (BCM numbering)
 # HAS TO BE ALL PWM pins
@@ -74,7 +75,7 @@ class MotorController(Node):
 
         # Subscriptions
         self.drive_sub = self.create_subscription(
-            Float64, '/commanded', self.drive_callback, 10)
+            Float64MultiArray, '/commanded', self.drive_callback, 10)
 
     def drive_callback(self, msg):
         # Safely get the data field
@@ -101,7 +102,7 @@ class MotorController(Node):
         speed_left = int(throttle_left * 255)
         speed_right = int(throttle_right * 255)
 
-        self.get_logger().info(f'Throttle L/R: {throttle_left:.3f}/{throttle_right:.3f} -> Speed L/R: {speed_left}/{speed_right}')
+        self.get_logger().info(f'Throttle L/R: {throttle_left:.3f}/{throttle_right:.3f} angle fl {fl_angle} angle fr {fr_angle}')
         # self.motor_left.setSpeed(speed_left)
         # self.motor_right.setSpeed(speed_right)
 
