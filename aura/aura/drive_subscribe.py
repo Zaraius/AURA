@@ -102,8 +102,8 @@ class MotorController(Node):
         speed_right = int(throttle_right * 255)
 
         self.get_logger().info(f'Throttle L/R: {throttle_left:.3f}/{throttle_right:.3f} -> Speed L/R: {speed_left}/{speed_right}')
-        self.motor_left.setSpeed(speed_left)
-        self.motor_right.setSpeed(speed_right)
+        # self.motor_left.setSpeed(speed_left)
+        # self.motor_right.setSpeed(speed_right)
 
         # If you need to use angles elsewhere, they are available as fl_angle, fr_angle
 
