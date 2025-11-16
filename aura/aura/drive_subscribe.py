@@ -42,9 +42,9 @@ class CytronMD:
             self.pwm2.start(0)
 
     def setSpeed(self, speed):
+        speed = speed/10
         speed = max(min(speed, 255), -255)
         duty_cycle = (abs(speed) / 255.0) * 100
-
         if self._mode == MODE.PWM_DIR:
             self.pwm1.ChangeDutyCycle(duty_cycle)
             GPIO.output(self._pin2, GPIO.HIGH if speed < 0 else GPIO.LOW)
@@ -92,8 +92,8 @@ class MotorController(Node):
         try:
             throttle_left = max(min(float(data[0]), 1.0), -1.0)
             throttle_right = max(min(float(data[1]), 1.0), -1.0)
-            fl_angle = float(data[2])
-            fr_angle = float(data[3])
+            fl_angle = round(float(data[2]),2)
+            fr_angle = round(float(data[3]),2)
         except Exception as e:
             self.get_logger().error(f'Invalid msg.data format (expected 4 numeric values): {e}')
             return
@@ -103,8 +103,12 @@ class MotorController(Node):
         speed_right = int(throttle_right * 255)
 
         self.get_logger().info(f'Throttle L/R: {throttle_left:.3f}/{throttle_right:.3f} angle fl {fl_angle} angle fr {fr_angle}')
-        # self.motor_left.setSpeed(speed_left)
-        # self.motor_right.setSpeed(speed_right)
+        
+        speed_left_debug = speed_left/10
+        speed_left_debug = max(min(speed_left, 255), -255)
+        self.get_logger().info(f"Speed: {speed_left_debug}")
+        self.motor_left.setSpeed(speed_left)
+        self.motor_right.setSpeed(speed_right)
 
         # If you need to use angles elsewhere, they are available as fl_angle, fr_angle
 

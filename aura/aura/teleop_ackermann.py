@@ -20,7 +20,7 @@ class AckermannTeleop(Node):
 
         # Controller mapping (adjust for your joystick)
         self.axis_speed = 1    # Left stick vertical
-        self.axis_steer = 2    # Right stick horizontal
+        self.axis_steer = 3    # Right stick horizontal
         self.enable_button = 5 # Right bumper
 
         # Scaling factors
@@ -28,10 +28,10 @@ class AckermannTeleop(Node):
         self.steer_scale = -1.1071487177940904 / 90
 
         # Robot constants
-        self.HALF_DISTANCE_BETWEEN_WHEELS = 0.045
-        self.WHEEL_RADIUS = 0.025
-        self.WHEELBASE = 0.09   # distance between front and rear axles
-        self.TRACK_WIDTH = 0.09 # distance between left/right wheels
+        self.HALF_DISTANCE_BETWEEN_WHEELS = 0.25
+        self.WHEEL_RADIUS = 0.15
+        self.WHEELBASE = 0.5   # distance between front and rear axles
+        self.TRACK_WIDTH = 0.5 # distance between left/right wheels
 
         self.enabled = False
     
