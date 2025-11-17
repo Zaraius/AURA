@@ -5,6 +5,8 @@ from sensor_msgs.msg import Joy
 from ackermann_msgs.msg import AckermannDriveStamped
 from std_msgs.msg import Float64MultiArray
 
+from aura.constants import WHEELBASE, TRACK_WIDTH, WHEEL_RADIUS, MAX_STEERING_ANGLE
+
 class AckermannTeleop(Node):
     def __init__(self):
         super().__init__('ackermann_teleop')
@@ -22,15 +24,7 @@ class AckermannTeleop(Node):
         self.enable_button = 5 # Right bumper
 
         # Scaling factors
-        self.speed_scale = 1.0            # m/s scaling
-        self.MAX_STEERING_ANGLE = math.radians(30)  # max wheel angle ±30°
-
-        # TODO: Replace with real dimensions
-        # Robot dimensions
-        self.WHEELBASE = 0.5207     # 20.5" Distance front to rear axles (meters) 
-        self.TRACK_WIDTH = 0.4953   # 19.5" Distance between left and right front wheels (meters)
-        self.WHEEL_RADIUS = 0.0762  # 3" Front wheel radius (meters)
-
+        self.speed_scale = 1.0  # m/s scaling
         self.enabled = False
     
     def joy_callback(self, joy_msg: Joy):
@@ -42,18 +36,18 @@ class AckermannTeleop(Node):
             v_center = joy_msg.axes[self.axis_speed] * self.speed_scale
 
             # Steering input mapped to physical max steering angle
-            steer_input = joy_msg.axes[self.axis_steer] * self.MAX_STEERING_ANGLE
+            steer_input = joy_msg.axes[self.axis_steer] * MAX_STEERING_ANGLE
 
             if abs(steer_input) > 1e-6:
-                R_turn = self.WHEELBASE / math.tan(abs(steer_input))
+                R_turn = WHEELBASE / math.tan(abs(steer_input))
 
-                # Compute wheel angles relative to straight ahead
-                left_angle_abs = math.atan(self.WHEELBASE / (R_turn - self.TRACK_WIDTH / 2))
-                right_angle_abs = math.atan(self.WHEELBASE / (R_turn + self.TRACK_WIDTH / 2))
+                # Compute left and right wheel steering angles relative to straight ahead
+                left_angle_abs = math.atan(WHEELBASE / (R_turn - TRACK_WIDTH / 2))
+                right_angle_abs = math.atan(WHEELBASE / (R_turn + TRACK_WIDTH / 2))
 
                 # Compute wheel linear speeds
-                v_left = v_center * (R_turn - self.TRACK_WIDTH / 2) / R_turn
-                v_right = v_center * (R_turn + self.TRACK_WIDTH / 2) / R_turn
+                v_left = v_center * (R_turn - TRACK_WIDTH / 2) / R_turn
+                v_right = v_center * (R_turn + TRACK_WIDTH / 2) / R_turn
 
                 # Assign left/right angles and speeds depending on turn direction
                 if steer_input > 0:  # left turn
@@ -73,9 +67,9 @@ class AckermannTeleop(Node):
                 fl_angle = fr_angle = 0.0
                 fl_speed = fr_speed = v_center
 
-            # Convert to wheel angular velocity
-            fl_speed /= self.WHEEL_RADIUS
-            fr_speed /= self.WHEEL_RADIUS
+            # Convert linear speed to wheel angular velocity
+            fl_speed /= WHEEL_RADIUS
+            fr_speed /= WHEEL_RADIUS
 
             # Publish AckermannDriveStamped for controllers
             drive_msg = AckermannDriveStamped()
@@ -85,15 +79,13 @@ class AckermannTeleop(Node):
 
             # Publish commanded wheel speeds and angles
             cmd_msg = Float64MultiArray()
-
-            # NOTE: fl_angle in rad, CCW +, CW -
             cmd_msg.data = [fl_speed, fr_speed, fl_angle, fr_angle]
             self.commanded_pub.publish(cmd_msg)
 
             self.get_logger().info(
-                f"v_center: {v_center:.2f}, steer_input: {steer_input:.2f},\n "
-                f"FL: angle {fl_angle:.2f} rad, speed {fl_speed:.2f} rad/s,\n "
-                f"FR: angle {fr_angle:.2f} rad, speed {fr_speed:.2f} rad/s \n"
+                f"v_center: {v_center:.2f}, steer_input: {steer_input:.2f}, "
+                f"FL: angle {fl_angle:.2f} rad, speed {fl_speed:.2f} rad/s, "
+                f"FR: angle {fr_angle:.2f} rad, speed {fr_speed:.2f} rad/s"
             )
             return
 
