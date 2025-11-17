@@ -101,20 +101,15 @@ class MotorController(Node):
             self.get_logger().error(f'Invalid msg.data format (expected 4 numeric values): {e}')
             return
 
-        # Map [-1, 1] throttle to [-255, 255] motor command
-        speed_left = int(throttle_left * 255)
-        speed_right = int(throttle_right * 255)
-
         self.get_logger().info(f'Throttle L/R: {throttle_left:.3f}/{throttle_right:.3f} angle fl {fl_angle} angle fr {fr_angle}')
         
-        self.get_logger().info(f'Speed L/R: {speed_left:.3f}/{speed_right:.3f}')
         # speed_left_debug = speed_left/10
         # speed_left_debug = max(min(speed_left, 255), -255)
         # self.get_logger().info(f"Speed: {speed_left_debug}")
 
 
-        self.motor_left.setSpeed(speed_left)
-        self.motor_right.setSpeed(speed_right)
+        self.motor_left.setSpeed(throttle_left)
+        self.motor_right.setSpeed(throttle_right)
 
         # If you need to use angles elsewhere, they are available as fl_angle, fr_angle
 

@@ -27,9 +27,9 @@ class AckermannTeleop(Node):
 
         # TODO: Replace with real dimensions
         # Robot dimensions
-        self.WHEELBASE = 0.5        # Distance front to rear axles (meters)
-        self.TRACK_WIDTH = 0.5      # Distance between left and right front wheels (meters)
-        self.WHEEL_RADIUS = 0.15    # Front wheel radius (meters)
+        self.WHEELBASE = 0.5207     # 20.5" Distance front to rear axles (meters) 
+        self.TRACK_WIDTH = 0.4953   # 19.5" Distance between left and right front wheels (meters)
+        self.WHEEL_RADIUS = 0.0762  # 3" Front wheel radius (meters)
 
         self.enabled = False
     
@@ -85,13 +85,15 @@ class AckermannTeleop(Node):
 
             # Publish commanded wheel speeds and angles
             cmd_msg = Float64MultiArray()
+
+            # NOTE: fl_angle in rad, CCW +, CW -
             cmd_msg.data = [fl_speed, fr_speed, fl_angle, fr_angle]
             self.commanded_pub.publish(cmd_msg)
 
             self.get_logger().info(
-                f"v_center: {v_center:.2f}, steer_input: {steer_input:.2f}, "
-                f"FL: angle {fl_angle:.2f} rad, speed {fl_speed:.2f} rad/s, "
-                f"FR: angle {fr_angle:.2f} rad, speed {fr_speed:.2f} rad/s"
+                f"v_center: {v_center:.2f}, steer_input: {steer_input:.2f},\n "
+                f"FL: angle {fl_angle:.2f} rad, speed {fl_speed:.2f} rad/s,\n "
+                f"FR: angle {fr_angle:.2f} rad, speed {fr_speed:.2f} rad/s \n"
             )
             return
 
