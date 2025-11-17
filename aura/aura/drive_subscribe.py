@@ -42,7 +42,7 @@ class CytronMD:
             self.pwm2.start(0)
 
     def setSpeed(self, speed):
-        speed = speed/10
+        # speed = speed/10
         speed = max(min(speed, 255), -255)
         duty_cycle = (abs(speed) / 255.0) * 100
         if self._mode == MODE.PWM_DIR:
@@ -90,8 +90,11 @@ class MotorController(Node):
             self.get_logger().error('Expected sequence of length 4 in msg.data')
             return
         try:
-            throttle_left = max(min(float(data[0]), 1.0), -1.0)
-            throttle_right = max(min(float(data[1]), 1.0), -1.0)
+            # throttle_left = max(min(float(data[0]), 1.0), -1.0)
+            # throttle_right = max(min(float(data[1]), 1.0), -1.0)
+            throttle_left = float(data[0])
+            throttle_right = float(data[1])
+
             fl_angle = round(float(data[2]),2)
             fr_angle = round(float(data[3]),2)
         except Exception as e:
@@ -104,9 +107,12 @@ class MotorController(Node):
 
         self.get_logger().info(f'Throttle L/R: {throttle_left:.3f}/{throttle_right:.3f} angle fl {fl_angle} angle fr {fr_angle}')
         
-        speed_left_debug = speed_left/10
-        speed_left_debug = max(min(speed_left, 255), -255)
-        self.get_logger().info(f"Speed: {speed_left_debug}")
+        self.get_logger().info(f'Speed L/R: {speed_left:.3f}/{speed_right:.3f}')
+        # speed_left_debug = speed_left/10
+        # speed_left_debug = max(min(speed_left, 255), -255)
+        # self.get_logger().info(f"Speed: {speed_left_debug}")
+
+
         self.motor_left.setSpeed(speed_left)
         self.motor_right.setSpeed(speed_right)
 
