@@ -1,118 +1,98 @@
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float64
-import RPi.GPIO as GPIO
-import time
-import math
 from std_msgs.msg import Float64MultiArray
+import RPi.GPIO as GPIO
 
-# GPIO pin constants (BCM numbering)
-# HAS TO BE ALL PWM pins
-IN1 = 12  # Direction pin for left motor
-IN2 = 13  # Direction pin for right motor
-AN1 = 18  # PWM pin for left motor
-AN2 = 19  # PWM pin for right motor
+# BCM pin definitions
+IN1 = 11  # DIR left
+IN2 = 13  # DIR right
+AN1 = 12  # PWM left
+AN2 = 33  # PWM right
 
-# Motor driver modes
 class MODE:
     PWM_DIR = 0
     PWM_PWM = 1
 
-# Cytron Motor Driver class
 class CytronMD:
-    def __init__(self, mode, pin1, pin2, frequency=1000):
+    """Faithful Python port of Cytron's Arduino CytronMD library."""
+    
+    def __init__(self, mode, pin_pwm, pin_dir, frequency=20000):
         self._mode = mode
-        self._pin1 = pin1
-        self._pin2 = pin2
-        self._frequency = frequency
-
-        GPIO.setup(self._pin1, GPIO.OUT)
-        GPIO.setup(self._pin2, GPIO.OUT)
-        GPIO.output(self._pin1, GPIO.LOW)
-        GPIO.output(self._pin2, GPIO.LOW)
-
-        if self._mode == MODE.PWM_DIR:
-            self.pwm1 = GPIO.PWM(self._pin1, self._frequency)
-            self.pwm1.start(0)
-            self.pwm2 = None
-        elif self._mode == MODE.PWM_PWM:
-            self.pwm1 = GPIO.PWM(self._pin1, self._frequency)
-            self.pwm2 = GPIO.PWM(self._pin2, self._frequency)
-            self.pwm1.start(0)
-            self.pwm2.start(0)
-
+        self._pin_pwm = pin_pwm
+        self._pin_dir = pin_dir
+        
+        GPIO.setup(self._pin_pwm, GPIO.OUT)
+        GPIO.setup(self._pin_dir, GPIO.OUT)
+        GPIO.output(self._pin_pwm, GPIO.LOW)
+        GPIO.output(self._pin_dir, GPIO.LOW)
+        
+        self.pwm = GPIO.PWM(self._pin_pwm, frequency)
+        self.pwm.start(0)
+    
     def setSpeed(self, speed):
-        # speed = speed/10
-        speed = max(min(speed, 255), -255)
-        duty_cycle = (abs(speed) / 255.0) * 100
+        """Matches the Arduino library behavior exactly."""
+        if speed > 255:
+            speed = 255
+        elif speed < -255:
+            speed = -255
+        
+        # MATCHES ARDUINO VERSION EXACTLY
         if self._mode == MODE.PWM_DIR:
-            self.pwm1.ChangeDutyCycle(duty_cycle)
-            GPIO.output(self._pin2, GPIO.HIGH if speed < 0 else GPIO.LOW)
+            if speed > 0:
+                duty = speed / 255 * 100
+                print(f"duty: {duty}")
+                self.pwm.ChangeDutyCycle(duty)
+                GPIO.output(self._pin_dir, GPIO.LOW)  # forward
+                print("FORWARDDDDD")
+            elif speed < 0:
+                duty = -speed / 255 * 100
+                print(f"duty: {duty}")
+                self.pwm.ChangeDutyCycle(duty)
+                GPIO.output(self._pin_dir, GPIO.HIGH)  # reverse
+                print("REVERSSEEEE")
         elif self._mode == MODE.PWM_PWM:
-            if speed >= 0:
-                self.pwm1.ChangeDutyCycle(duty_cycle)
-                self.pwm2.ChangeDutyCycle(0)
-            else:
-                self.pwm1.ChangeDutyCycle(0)
-                self.pwm2.ChangeDutyCycle(duty_cycle)
-
+            # (not used on Raspberry Pi)
+            pass
+    
     def cleanup(self):
-        if self.pwm1:
-            self.pwm1.stop()
-        if self.pwm2:
-            self.pwm2.stop()
+        self.pwm.stop()
 
-# ROS Node
 class MotorController(Node):
     def __init__(self):
-        super().__init__('motor_controller')
+        super().__init__("motor_controller")
+        
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
-
-        # Initialize motor drivers (PWM_DIR mode)
-        self.motor_left = CytronMD(MODE.PWM_DIR, AN1, IN1)  # Left: PWM=18, DIR=12
-        self.motor_right = CytronMD(MODE.PWM_DIR, AN2, IN2)  # Right: PWM=19, DIR=13
-
-        # Subscriptions
-        self.drive_sub = self.create_subscription(
-            Float64MultiArray, '/commanded', self.drive_callback, 10)
-
-    def drive_callback(self, msg):
-        # Safely get the data field
-        try:
-            data = msg.data
-        except Exception:
-            self.get_logger().error('Received message without data field')
-            return
-
-        # Assume msg.data is a sequence of length 4: [throttle_left, throttle_right, fl_angle, fr_angle]
-        if not hasattr(data, '__len__'):
-            self.get_logger().error('Expected sequence of length 4 in msg.data')
-            return
-        try:
-            # throttle_left = max(min(float(data[0]), 1.0), -1.0)
-            # throttle_right = max(min(float(data[1]), 1.0), -1.0)
-            throttle_left = float(data[0])
-            throttle_right = float(data[1])
-
-            fl_angle = round(float(data[2]),2)
-            fr_angle = round(float(data[3]),2)
-        except Exception as e:
-            self.get_logger().error(f'Invalid msg.data format (expected 4 numeric values): {e}')
-            return
-
-        self.get_logger().info(f'Throttle L/R: {throttle_left:.3f}/{throttle_right:.3f} angle fl {fl_angle} angle fr {fr_angle}')
         
-        # speed_left_debug = speed_left/10
-        # speed_left_debug = max(min(speed_left, 255), -255)
-        # self.get_logger().info(f"Speed: {speed_left_debug}")
-
-
+        # EXACT MATCH to Arduino library
+        self.motor_left = CytronMD(MODE.PWM_DIR, AN1, IN1)
+        self.motor_right = CytronMD(MODE.PWM_DIR, AN2, IN2)
+        
+        self.drive_sub = self.create_subscription(
+            Float64MultiArray, "/commanded", self.drive_callback, 10
+        )
+        
+        self.get_logger().info("Motor controller initialized")
+    
+    def drive_callback(self, msg):
+        if len(msg.data) != 4:
+            self.get_logger().error("Expected 4 floats: [thrL, thrR, fl, fr]")
+            return
+        
+        throttle_left = float(msg.data[0])
+        throttle_right = float(msg.data[1])
+        fl_angle = float(msg.data[2])
+        fr_angle = float(msg.data[3])
+        
+        self.get_logger().info(
+            f"L={throttle_left:.1f}, R={throttle_right:.1f}, "
+            f"FL={fl_angle:.2f}, FR={fr_angle:.2f}"
+        )
+        
+        # Send to hardware
         self.motor_left.setSpeed(throttle_left)
         self.motor_right.setSpeed(throttle_right)
-
-        # If you need to use angles elsewhere, they are available as fl_angle, fr_angle
-
+    
     def cleanup(self):
         self.motor_left.setSpeed(0)
         self.motor_right.setSpeed(0)
@@ -122,16 +102,16 @@ class MotorController(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-
-    motor_controller = MotorController()
-
-    rclpy.spin(motor_controller)
-
-    # Destroy the node explicitly
-    # (optional - otherwise it will be done automatically
-    # when the garbage collector destroys the node object)
-    motor_controller.destroy_node()
+    node = MotorController()
+    
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    
+    node.cleanup()
+    node.destroy_node()
     rclpy.shutdown()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

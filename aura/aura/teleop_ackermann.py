@@ -3,9 +3,9 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Joy
 from ackermann_msgs.msg import AckermannDriveStamped
+from geometry_msgs.msg import Twist
 from std_msgs.msg import Float64MultiArray
 
-from aura.constants import WHEELBASE, TRACK_WIDTH, WHEEL_RADIUS, MAX_STEERING_ANGLE
 
 class AckermannTeleop(Node):
     def __init__(self):
@@ -24,79 +24,63 @@ class AckermannTeleop(Node):
         self.enable_button = 5 # Right bumper
 
         # Scaling factors
-        self.speed_scale = 1.0  # m/s scaling
+        self.speed_scale = 0.025
+        self.steer_scale = -1.1071487177940904 / 90
+
+        # Robot constants
+        self.HALF_DISTANCE_BETWEEN_WHEELS = 0.25
+        self.WHEEL_RADIUS = 0.15
+        self.WHEELBASE = 0.5   # distance between front and rear axles
+        self.TRACK_WIDTH = 0.5 # distance between left/right wheels
+
         self.enabled = False
     
-    def joy_callback(self, joy_msg: Joy):
+    def joy_callback(self, msg: Joy):
         # Only act when enable button (RB) is pressed
-        if len(joy_msg.buttons) > self.enable_button and joy_msg.buttons[self.enable_button]:
+        if len(msg.buttons) > self.enable_button and msg.buttons[self.enable_button]:
             self.enabled = True
-
-            # Forward speed
-            v_center = joy_msg.axes[self.axis_speed] * self.speed_scale
-
-            # Steering input mapped to physical max steering angle
-            steer_input = joy_msg.axes[self.axis_steer] * MAX_STEERING_ANGLE
-
-            if abs(steer_input) > 1e-6:
-                R_turn = WHEELBASE / math.tan(abs(steer_input))
-
-                # Compute left and right wheel steering angles relative to straight ahead
-                left_angle_abs = math.atan(WHEELBASE / (R_turn - TRACK_WIDTH / 2))
-                right_angle_abs = math.atan(WHEELBASE / (R_turn + TRACK_WIDTH / 2))
-
-                # Compute wheel linear speeds
-                v_left = v_center * (R_turn - TRACK_WIDTH / 2) / R_turn
-                v_right = v_center * (R_turn + TRACK_WIDTH / 2) / R_turn
-
-                # Assign left/right angles and speeds depending on turn direction
-                if steer_input > 0:  # left turn
-                    fl_angle = left_angle_abs
-                    fr_angle = right_angle_abs
-                    fl_speed = v_left
-                    fr_speed = v_right
-                else:  # right turn
-                    fl_angle = right_angle_abs
-                    fr_angle = left_angle_abs
-                    fl_angle = -fl_angle
-                    fr_angle = -fr_angle
-                    fl_speed = v_right
-                    fr_speed = v_left
-            else:
-                # Straight
-                fl_angle = fr_angle = 0.0
-                fl_speed = fr_speed = v_center
-
-            # Convert linear speed to wheel angular velocity
-            fl_speed /= WHEEL_RADIUS
-            fr_speed /= WHEEL_RADIUS
-
-            # Publish AckermannDriveStamped for controllers
+            # Ackermann command
             drive_msg = AckermannDriveStamped()
-            drive_msg.drive.speed = v_center
-            drive_msg.drive.steering_angle = steer_input
+            drive_msg.drive.speed = msg.axes[self.axis_speed] * self.speed_scale
+            drive_msg.drive.steering_angle = msg.axes[self.axis_steer] * self.steer_scale
             self.ackermann_pub.publish(drive_msg)
 
-            # Publish commanded wheel speeds and angles
-            cmd_msg = Float64MultiArray()
-            cmd_msg.data = [fl_speed, fr_speed, fl_angle, fr_angle]
-            self.commanded_pub.publish(cmd_msg)
+            # Convert to differential drive velocities
+            forward_speed = drive_msg.drive.speed
+            angular_speed = drive_msg.drive.steering_angle
 
+            command_motor_left = (forward_speed - angular_speed * self.HALF_DISTANCE_BETWEEN_WHEELS) / self.WHEEL_RADIUS
+            command_motor_right = (forward_speed + angular_speed * self.HALF_DISTANCE_BETWEEN_WHEELS) / self.WHEEL_RADIUS
+            if angular_speed != 0:
+                turn_radius = forward_speed / angular_speed
+                angle_inner = math.atan(self.WHEELBASE / (turn_radius - self.TRACK_WIDTH/2))
+                angle_outer = math.atan(self.WHEELBASE / (turn_radius + self.TRACK_WIDTH/2))
+                if angular_speed > 0:  # turning left
+                    fl_angle = angle_inner
+                    fr_angle = angle_outer
+                else:  # turning right
+                    fl_angle = -angle_outer
+                    fr_angle = -angle_inner
+            else:
+                fl_angle = 0.0
+                fr_angle = 0.0
+            msg = Float64MultiArray()
+            msg.data = [command_motor_left, command_motor_right, fl_angle, fr_angle]
+            self.commanded_pub.publish(msg)
+            # Print useful info
             self.get_logger().info(
-                f"v_center: {v_center:.2f}, steer_input: {steer_input:.2f}, "
-                f"FL: angle {fl_angle:.2f} rad, speed {fl_speed:.2f} rad/s, "
-                f"FR: angle {fr_angle:.2f} rad, speed {fr_speed:.2f} rad/s"
+                f"Speed: {forward_speed:.2f}, Steer: {angular_speed:.2f}, "
+                f"L_wheel: {command_motor_left:.2f}, R_wheel: {command_motor_right:.2f}"
             )
             return
-
-        # Stop when enable button released
         if self.enabled:
-            self.enabled = False
-            stop_msg = Float64MultiArray()
-            stop_msg.data = [0.0, 0.0, 0.0, 0.0]
-            self.commanded_pub.publish(stop_msg)
-            self.get_logger().info("Commanded STOP after release")
+            self.enabled = False  # reset
 
+            msg_out = Float64MultiArray()
+            msg_out.data = [0.0, 0.0, 0.0, 0.0]
+            self.commanded_pub.publish(msg_out)
+
+            self.get_logger().info("Commanded STOP after release")
 
 def main(args=None):
     rclpy.init(args=args)
@@ -104,7 +88,6 @@ def main(args=None):
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
