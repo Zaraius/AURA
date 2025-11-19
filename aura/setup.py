@@ -32,6 +32,7 @@ setup(
             'teleop = aura.teleop_ackermann:main',
             'stepper = aura.stepper:main',
             'ackermann_driver = aura.ackermann_driver:main',
+            'encoder = aura.rotary_encoder:main',
         ],
     },
 )

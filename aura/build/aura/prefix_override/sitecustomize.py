@@ -1,4 +1,4 @@
 import sys
 if sys.prefix == '/usr':
     sys.real_prefix = sys.prefix
-    sys.prefix = sys.exec_prefix = '/root/ros2_ws/src/aura/install/aura'
+    sys.prefix = sys.exec_prefix = '/home/xavier/AURA/aura/install/aura'
