@@ -123,23 +123,23 @@ class StepperMotor:
         self.step_pin = step_pin
         
         # TODO: Relative encoder, determine whats the best way to start the 0 angle for joystick controls. 0 on the right or on top?
-        self.current_angle = 0.0  # Track current angle in degrees
+        self.current_angle = 0.0  # Track current angle in radians
         
         GPIO.setup(self.dir_pin, GPIO.OUT)
         GPIO.setup(self.step_pin, GPIO.OUT)
         GPIO.output(self.dir_pin, CW)
         GPIO.output(self.step_pin, GPIO.LOW)
     
-    def angle_to_steps(self, angle_degrees):
-        """Convert angle in degrees to number of steps"""
-        return int((angle_degrees / 360.0) * STEPS_PER_REV)
+    def radians_to_steps(self, angle_radians):
+        """Convert angle in radians to number of steps"""
+        return int((angle_radians / (2 * math.pi)) * STEPS_PER_REV)
     
     def move_to_angle(self, target_angle):
-        """Move stepper to target angle (in degrees)"""
+        """Move stepper to target angle (in radians)"""
         # Calculate angle difference
         angle_diff = target_angle - self.current_angle
         
-        if abs(angle_diff) < 0.1:  # Threshold to avoid unnecessary movement
+        if abs(angle_diff) < 0.01:  # Threshold to avoid unnecessary movement 0.0314159 rad = 1.8 deg (200 steps)
             return
         
         # Determine direction
@@ -147,7 +147,7 @@ class StepperMotor:
         GPIO.output(self.dir_pin, direction)
         
         # Calculate steps needed
-        steps = abs(self.angle_to_steps(angle_diff))
+        steps = abs(self.radians_to_steps(angle_diff))
         
         for _ in range(steps):
             GPIO.output(self.step_pin, GPIO.HIGH)
@@ -190,6 +190,7 @@ class DriveController(Node):
         """
         Process motor commands from /commanded topic.
         Expected format: [throttle_left, throttle_right, fl_angle, fr_angle]
+        Angles are expected in radians.
         """
         try:
             data = msg.data
@@ -206,23 +207,21 @@ class DriveController(Node):
             # Extract values
             throttle_left = float(data[0])   # -255 to +255
             throttle_right = float(data[1])  # -255 to +255
-            fl_angle = round(float(data[2]), 2)
-            fr_angle = round(float(data[3]), 2)
+            fl_angle = float(data[2])  # radians
+            fr_angle = float(data[3])  # radians
         except Exception as e:
             self.get_logger().error(f'Invalid data format: {e}')
             return
 
         self.get_logger().info(
-            f'L={throttle_left:.1f}, R={throttle_right:.1f}, '
-            f'FL={fl_angle:.2f}°, FR={fr_angle:.2f}°'
+            f'L={throttle_left:.1f}, R={throttle_right:.1f}'
+            f'FL={fl_angle:.4f} rad, FR={fr_angle:.4f} rad'
+            f' -> FL={math.degrees(fl_angle):.2f} deg, FR={math.degrees(fr_angle):.2f} deg'
         )
 
         # Send to motors
         self.motor_left.setSpeed(throttle_left)
         self.motor_right.setSpeed(throttle_right)
-        # Map [-1, 1] throttle to [-255, 255] motor command
-
-        self.get_logger().info(f'Steering angles - FL: {fl_angle:.2f}°, FR: {fr_angle:.2f}°')
         
         # Control stepper motors to set steering angles
         # self.stepper_left.move_to_angle(fl_angle)
