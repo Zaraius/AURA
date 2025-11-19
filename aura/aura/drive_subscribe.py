@@ -1,10 +1,13 @@
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float64MultiArray
+from std_msgs.msg import Float64
 import RPi.GPIO as GPIO
+import time
+import math
+from std_msgs.msg import Float64MultiArray
 
 # ============================================
-# CORRECTED GPIO PIN ASSIGNMENTS (BCM)
+# DRIVE GPIO PIN ASSIGNMENTS (BCM)
 # ============================================
 # Motor A (Left) - Uses PWM Channel 0
 AN1 = 12   # PWM left motor (Hardware PWM0)
@@ -13,6 +16,26 @@ IN1 = 5    # DIR left motor (Digital)
 # Motor B (Right) - Uses PWM Channel 1
 AN2 = 13   # PWM right motor (Hardware PWM1)
 IN2 = 6    # DIR right motor (Digital)
+
+# ============================================
+# STEERING GPIO PIN ASSIGNMENTS (BCM)
+# ============================================
+# REMEMBER TO PLUG STEPPER CONTROLLER INTO 3.3V!!!
+# TODO: Set these according to the electrical wiring
+# Stepper motor pins
+# Left stepper (front left wheel)
+DIR_LEFT = 7  
+STEP_LEFT = 1 
+
+# Right stepper (front right wheel)
+DIR_RIGHT = 23  # BCM 23 = BOARD 16
+STEP_RIGHT = 24 # BCM 24 = BOARD 18
+
+# Stepper motor constants
+CW = 1
+CCW = 0
+STEPS_PER_REV = 200 # Remember to adjust the controller configs if changing this
+STEP_SLEEP_TIME = 0.0005  # delay between step pin toggles
 
 # Motor driver modes
 class MODE:
@@ -93,20 +116,67 @@ class CytronMD:
         if hasattr(self, 'pwm2'):
             self.pwm2.stop()
 
-class MotorController(Node):
+# Stepper Motor Controller class
+class StepperMotor:
+    def __init__(self, dir_pin, step_pin):
+        self.dir_pin = dir_pin
+        self.step_pin = step_pin
+        
+        # TODO: Relative encoder, determine whats the best way to start the 0 angle for joystick controls. 0 on the right or on top?
+        self.current_angle = 0.0  # Track current angle in degrees
+        
+        GPIO.setup(self.dir_pin, GPIO.OUT)
+        GPIO.setup(self.step_pin, GPIO.OUT)
+        GPIO.output(self.dir_pin, CW)
+        GPIO.output(self.step_pin, GPIO.LOW)
+    
+    def angle_to_steps(self, angle_degrees):
+        """Convert angle in degrees to number of steps"""
+        return int((angle_degrees / 360.0) * STEPS_PER_REV)
+    
+    def move_to_angle(self, target_angle):
+        """Move stepper to target angle (in degrees)"""
+        # Calculate angle difference
+        angle_diff = target_angle - self.current_angle
+        
+        if abs(angle_diff) < 0.1:  # Threshold to avoid unnecessary movement
+            return
+        
+        # Determine direction
+        direction = CW if angle_diff >= 0 else CCW
+        GPIO.output(self.dir_pin, direction)
+        
+        # Calculate steps needed
+        steps = abs(self.angle_to_steps(angle_diff))
+        
+        for _ in range(steps):
+            GPIO.output(self.step_pin, GPIO.HIGH)
+            time.sleep(STEP_SLEEP_TIME)
+            GPIO.output(self.step_pin, GPIO.LOW)
+            time.sleep(STEP_SLEEP_TIME)
+        
+        # Update current position
+        self.current_angle = target_angle
+
+# ROS Node
+class DriveController(Node):
     def __init__(self):
-        super().__init__('motor_controller')
+        super().__init__('drive_controller')
         
         # Setup GPIO
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
 
-        # Initialize motor drivers in PWM_DIR mode
+        # Initialize DC motor drivers in PWM_DIR mode
         # Left motor: PWM on AN1 (GPIO12), DIR on IN1 (GPIO5)
         self.motor_left = CytronMD(MODE.PWM_DIR, AN1, IN1)
         
         # Right motor: PWM on AN2 (GPIO13), DIR on IN2 (GPIO6)
         self.motor_right = CytronMD(MODE.PWM_DIR, AN2, IN2)
+
+        # Initialize stepper motors for steering
+        self.stepper_left = StepperMotor(DIR_LEFT, STEP_LEFT)
+        self.stepper_right = StepperMotor(DIR_RIGHT, STEP_RIGHT)
 
         # Subscribe to commanded topic
         self.drive_sub = self.create_subscription(
@@ -142,7 +212,6 @@ class MotorController(Node):
             self.get_logger().error(f'Invalid data format: {e}')
             return
 
-        # Log command
         self.get_logger().info(
             f'L={throttle_left:.1f}, R={throttle_right:.1f}, '
             f'FL={fl_angle:.2f}°, FR={fr_angle:.2f}°'
@@ -151,6 +220,13 @@ class MotorController(Node):
         # Send to motors
         self.motor_left.setSpeed(throttle_left)
         self.motor_right.setSpeed(throttle_right)
+        # Map [-1, 1] throttle to [-255, 255] motor command
+
+        self.get_logger().info(f'Steering angles - FL: {fl_angle:.2f}°, FR: {fr_angle:.2f}°')
+        
+        # Control stepper motors to set steering angles
+        # self.stepper_left.move_to_angle(fl_angle)
+        # self.stepper_right.move_to_angle(fr_angle)
 
     def cleanup(self):
         """Stop motors and cleanup GPIO."""
@@ -163,15 +239,16 @@ class MotorController(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    motor_controller = MotorController()
+
+    drive_controller = DriveController()
 
     try:
-        rclpy.spin(motor_controller)
+        rclpy.spin(drive_controller)
     except KeyboardInterrupt:
         pass
     finally:
-        motor_controller.cleanup()
-        motor_controller.destroy_node()
+        drive_controller.cleanup()
+        drive_controller.destroy_node()
         rclpy.shutdown()
 
 if __name__ == "__main__":
