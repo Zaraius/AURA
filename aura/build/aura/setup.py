@@ -1,1 +1,1 @@
-/root/ros2_ws/src/aura/setup.py
+/home/xavier/AURA/aura/setup.py

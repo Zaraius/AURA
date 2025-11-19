@@ -1,3 +1,7 @@
 [console_scripts]
+ackermann_driver = aura.ackermann_driver:main
+encoder = aura.rotary_encoder:main
 my_robot_driver = aura.my_robot_driver:main
-
+stepper = aura.stepper:main
+subscribe = aura.drive_subscribe:main
+teleop = aura.teleop_ackermann:main
