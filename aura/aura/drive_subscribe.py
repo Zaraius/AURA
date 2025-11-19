@@ -19,7 +19,6 @@ class MODE:
     PWM_DIR = 0
     PWM_PWM = 1
 
-# Cytron Motor Driver class
 class CytronMD:
     def __init__(self, mode, pin_pwm, pin_dir, frequency=20000):
         """
@@ -94,7 +93,6 @@ class CytronMD:
         if hasattr(self, 'pwm2'):
             self.pwm2.stop()
 
-# ROS Node
 class MotorController(Node):
     def __init__(self):
         super().__init__('motor_controller')
@@ -176,5 +174,5 @@ def main(args=None):
         motor_controller.destroy_node()
         rclpy.shutdown()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
