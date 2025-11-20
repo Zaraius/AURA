@@ -169,7 +169,7 @@ class StepperMotor:
     
     def radians_to_steps(self, angle_radians):
         """Convert angle in radians to number of steps"""
-        return int((angle_radians / (2 * math.pi)) * STEPS_PER_REV * 4)
+        return int((angle_radians / (2 * math.pi)) * STEPS_PER_REV)
     
     def set_target_angle(self, angle):
         """
