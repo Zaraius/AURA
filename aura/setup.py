@@ -32,6 +32,9 @@ setup(
             'teleop = aura.teleop_ackermann:main',
             'stepper = aura.stepper:main',
             'ackermann_driver = aura.ackermann_driver:main',
+            'state_machine = aura.state_machine_node:main',
+            'auto = aura.autonomous_node:main',
+            'controller = aura.teleop_auto_controller:main',
         ],
     },
 )
