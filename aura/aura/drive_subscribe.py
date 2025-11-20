@@ -55,7 +55,6 @@ MIN_ANGLE_MOVEMENT = 0.015        # Minimum angle change to move (radians)
                                  # Increase to reduce jitter, decrease for precision
 
 STEER_STEPPER_GEAR_RATIO = 8
-DRIVE_MOTOR_GEAR_RATIO = 16/9
 
 # Motor driver modes
 class MODE:
@@ -279,8 +278,8 @@ class DriveController(Node):
         
         try:
             # Extract values
-            throttle_left = float(data[0])   # -255 to +255
-            throttle_right = float(data[1])  # -255 to +255
+            throttle_left = float(data[0])   # m/s
+            throttle_right = float(data[1])  # m/s
             fl_angle = float(data[2])  # radians
             fr_angle = float(data[3])  # radians
         except Exception as e:
@@ -293,8 +292,8 @@ class DriveController(Node):
         )
 
         # Set DC motor speeds
-        # self.motor_left.setSpeed(throttle_left)
-        # self.motor_right.setSpeed(throttle_right)
+        self.motor_left.setSpeed(throttle_left)
+        self.motor_right.setSpeed(throttle_right)
         
         # Set target angles for stepper motors (doesn't move them yet)
         self.stepper_left.set_target_angle(fl_angle)
