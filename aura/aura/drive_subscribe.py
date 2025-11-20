@@ -34,8 +34,25 @@ STEP_RIGHT = 27 # BCM 24 = BOARD 18
 # Stepper motor constants
 CW = 1
 CCW = 0
-STEPS_PER_REV = 200 # Remember to adjust the controller configs if changing this
+STEPS_PER_REV = 400 # Remember to adjust the controller configs if changing this
 STEP_SLEEP_TIME = 0.0005  # delay between step pin toggles
+
+# ============================================
+# SMOOTHING PARAMETERS - ADJUST THESE!
+# ============================================
+# Lower = smoother but slower response
+# Higher = faster response but more jittery
+STEPPER_UPDATE_RATE = 0.05      # Time between stepper updates in seconds (0.05 = 20Hz)
+                                 # Try: 0.03 (33Hz, faster) to 0.1 (10Hz, smoother)
+
+SMOOTHING_ALPHA = 0.25            # Filter strength (0.0-1.0)
+                                 # 0.1 = very smooth, slow response
+                                 # 0.5 = balanced
+                                 # 0.9 = minimal smoothing, fast response
+
+MIN_ANGLE_MOVEMENT = 0.015        # Minimum angle change to move (radians)
+                                 # 0.03 rad ≈ 1.7 degrees
+                                 # Increase to reduce jitter, decrease for precision
 
 # Motor driver modes
 class MODE:
@@ -116,15 +133,35 @@ class CytronMD:
         if hasattr(self, 'pwm2'):
             self.pwm2.stop()
 
-# Stepper Motor Controller class
+# Stepper Motor Controller class with smoothing
 class StepperMotor:
-    def __init__(self, dir_pin, step_pin):
+    def __init__(self, dir_pin, step_pin, update_interval=STEPPER_UPDATE_RATE, 
+                 alpha=SMOOTHING_ALPHA, min_movement=MIN_ANGLE_MOVEMENT):
+        """
+        Initialize stepper motor with smoothing.
+        
+        Args:
+            dir_pin: GPIO pin for direction
+            step_pin: GPIO pin for step signal
+            update_interval: Time between updates in seconds (lower = faster updates)
+            alpha: Smoothing factor 0-1 (lower = smoother, higher = more responsive)
+            min_movement: Minimum angle change in radians to trigger movement
+        """
         self.dir_pin = dir_pin
         self.step_pin = step_pin
         
-        # TODO: Relative encoder, determine whats the best way to start the 0 angle for joystick controls. 0 on the right or on top?
-        self.current_angle = 0.0  # Track current angle in radians
+        # Position tracking
+        self.current_angle = 0.0      # Actual current position
+        self.target_angle = 0.0       # Raw target from joystick
+        self.filtered_angle = 0.0     # Smoothed target
         
+        # Smoothing parameters
+        self.update_interval = update_interval
+        self.alpha = alpha
+        self.min_movement = min_movement
+        self.last_update_time = time.time()
+        
+        # Setup GPIO
         GPIO.setup(self.dir_pin, GPIO.OUT)
         GPIO.setup(self.step_pin, GPIO.OUT)
         GPIO.output(self.dir_pin, CW)
@@ -134,15 +171,37 @@ class StepperMotor:
         """Convert angle in radians to number of steps"""
         return int((angle_radians / (2 * math.pi)) * STEPS_PER_REV * 4)
     
-    def move_to_angle(self, target_angle):
-        """Move stepper to target angle (in radians)"""
-        # Calculate angle difference
-        angle_diff = target_angle - self.current_angle
-        print(f'FL={math.degrees(target_angle):.2f} deg')
+    def set_target_angle(self, angle):
+        """
+        Set new target angle from joystick input.
+        This applies exponential moving average filtering.
         
-        if abs(angle_diff) < 0.01:  # Threshold to avoid unnecessary movement 0.0314159 rad = 1.8 deg (200 steps)
-            return
-
+        Args:
+            angle: Target angle in radians
+        """
+        # Apply exponential moving average filter
+        self.filtered_angle = self.alpha * angle + (1 - self.alpha) * self.filtered_angle
+        self.target_angle = self.filtered_angle
+    
+    def update(self):
+        """
+        Periodically move stepper toward target angle.
+        Call this regularly (e.g., from a timer callback).
+        Returns True if motor moved, False otherwise.
+        """
+        # Check if enough time has passed since last update
+        current_time = time.time()
+        if current_time - self.last_update_time < self.update_interval:
+            return False
+        
+        self.last_update_time = current_time
+        
+        # Calculate angle difference
+        angle_diff = self.target_angle - self.current_angle
+        
+        # Don't move if difference is too small
+        if abs(angle_diff) < self.min_movement:
+            return False
         
         # Determine direction
         direction = CW if angle_diff >= 0 else CCW
@@ -151,15 +210,16 @@ class StepperMotor:
         # Calculate steps needed
         steps = abs(self.radians_to_steps(angle_diff))
         
+        # Move the motor
         for _ in range(steps):
             GPIO.output(self.step_pin, GPIO.HIGH)
             time.sleep(STEP_SLEEP_TIME)
             GPIO.output(self.step_pin, GPIO.LOW)
             time.sleep(STEP_SLEEP_TIME)
-
-                
+        
         # Update current position
-        self.current_angle = target_angle
+        self.current_angle = self.target_angle
+        return True
 
 # ROS Node
 class DriveController(Node):
@@ -177,7 +237,7 @@ class DriveController(Node):
         # Right motor: PWM on AN2 (GPIO13), DIR on IN2 (GPIO6)
         self.motor_right = CytronMD(MODE.PWM_DIR, AN2, IN2)
 
-        # Initialize stepper motors for steering
+        # Initialize stepper motors for steering with smoothing
         self.stepper_left = StepperMotor(DIR_LEFT, STEP_LEFT)
         self.stepper_right = StepperMotor(DIR_RIGHT, STEP_RIGHT)
 
@@ -185,7 +245,15 @@ class DriveController(Node):
         self.drive_sub = self.create_subscription(
             Float64MultiArray, '/commanded', self.drive_callback, 10)
         
-        self.get_logger().info('Motor controller initialized')
+        # Create timer to periodically update stepper positions
+        # This runs at the rate specified by STEPPER_UPDATE_RATE
+        timer_period = STEPPER_UPDATE_RATE / 2  # Check twice as often as update rate
+        self.timer = self.create_timer(timer_period, self.update_steppers)
+        
+        self.get_logger().info('Motor controller initialized with smoothing')
+        self.get_logger().info(f'Stepper update rate: {STEPPER_UPDATE_RATE}s ({1/STEPPER_UPDATE_RATE:.1f}Hz)')
+        self.get_logger().info(f'Smoothing alpha: {SMOOTHING_ALPHA}')
+        self.get_logger().info(f'Min movement: {MIN_ANGLE_MOVEMENT} rad ({math.degrees(MIN_ANGLE_MOVEMENT):.2f} deg)')
         self.get_logger().info('Left motor:  PWM=GPIO12(AN1), DIR=GPIO5(IN1)')
         self.get_logger().info('Right motor: PWM=GPIO13(AN2), DIR=GPIO6(IN2)')
 
@@ -217,18 +285,30 @@ class DriveController(Node):
             return
 
         self.get_logger().info(
-            f'L={throttle_left:.1f}, R={throttle_right:.1f}'
-            f'FL={fl_angle:.4f} rad, FR={fr_angle:.4f} rad'
-            f' -> FL={math.degrees(fl_angle):.2f} deg, FR={math.degrees(fr_angle):.2f} deg'
+            f'L={throttle_left:.1f}, R={throttle_right:.1f} '
+            f'FL={math.degrees(fl_angle):.2f}°, FR={math.degrees(fr_angle):.2f}°'
         )
 
-        # Send to motors
-        self.motor_left.setSpeed(throttle_left)
-        self.motor_right.setSpeed(throttle_right)
+        # Set DC motor speeds
+        # self.motor_left.setSpeed(throttle_left)
+        # self.motor_right.setSpeed(throttle_right)
         
-        # Control stepper motors to set steering angles
-        self.stepper_left.move_to_angle(fl_angle)
-        self.stepper_right.move_to_angle(fr_angle)
+        # Set target angles for stepper motors (doesn't move them yet)
+        self.stepper_left.set_target_angle(fl_angle)
+        self.stepper_right.set_target_angle(fr_angle)
+
+    def update_steppers(self):
+        """
+        Timer callback to periodically update stepper motor positions.
+        This is called at a fixed rate regardless of joystick input frequency.
+        """
+        # Update both steppers
+        left_moved = self.stepper_left.update()
+        right_moved = self.stepper_right.update()
+        
+        # Optional: Log when motors actually move
+        # if left_moved or right_moved:
+        #     self.get_logger().debug('Steppers updated')
 
     def cleanup(self):
         """Stop motors and cleanup GPIO."""
