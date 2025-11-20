@@ -4,8 +4,8 @@ from rclpy.node import Node
 import RPi.GPIO as GPIO
 from std_msgs.msg import Int32
 
-A_PIN = 17 # check with Jack and Zaraius what pins are being used
-B_PIN = 27
+A_PIN = 23 # check with Jack and Zaraius what pins are being used
+B_PIN = 24
 
 class EncoderNode(Node):
     def __init__(self):
