@@ -21,40 +21,28 @@ IN2 = 6    # DIR right motor (Digital)
 # STEERING GPIO PIN ASSIGNMENTS (BCM)
 # ============================================
 # REMEMBER TO PLUG STEPPER CONTROLLER INTO 3.3V!!!
-# TODO: Set these according to the electrical wiring
 # Stepper motor pins
 # Left stepper (front left wheel)
 DIR_LEFT = 7  
 STEP_LEFT = 1 
 
 # Right stepper (front right wheel)
-DIR_RIGHT = 17  # BCM 23 = BOARD 16
-STEP_RIGHT = 27 # BCM 24 = BOARD 18
+DIR_RIGHT = 17
+STEP_RIGHT = 27
 
 # Stepper motor constants
 CW = 1
 CCW = 0
-STEPS_PER_REV = 400 # Remember to adjust the controller configs if changing this
+STEPS_PER_REV = 400  # 1/2 microstepping (adjust controller accordingly)
 STEP_SLEEP_TIME = 0.0005  # delay between step pin toggles
 
 # ============================================
 # SMOOTHING PARAMETERS - ADJUST THESE!
 # ============================================
-# Lower = smoother but slower response
-# Higher = faster response but more jittery
-STEPPER_UPDATE_RATE = 0.05      # Time between stepper updates in seconds (0.05 = 20Hz)
-                                 # Try: 0.03 (33Hz, faster) to 0.1 (10Hz, smoother)
-
-SMOOTHING_ALPHA = 0.25            # Filter strength (0.0-1.0)
-                                 # 0.1 = very smooth, slow response
-                                 # 0.5 = balanced
-                                 # 0.9 = minimal smoothing, fast response
-
-MIN_ANGLE_MOVEMENT = 0.015        # Minimum angle change to move (radians)
-                                 # 0.03 rad ≈ 1.7 degrees
-                                 # Increase to reduce jitter, decrease for precision
-
-STEER_STEPPER_GEAR_RATIO = 8
+STEPPER_UPDATE_RATE = 0.01      # Time between stepper updates (0.01 = 100Hz)
+SMOOTHING_ALPHA = 0.5            # Filter strength (0.1 = smooth, 0.9 = responsive)
+MIN_ANGLE_MOVEMENT = 0.01        # Minimum angle change to move (radians)
+STEER_STEPPER_GEAR_RATIO = 8     # Gear ratio for steering
 
 # Motor driver modes
 class MODE:
@@ -62,7 +50,7 @@ class MODE:
     PWM_PWM = 1
 
 class CytronMD:
-    def __init__(self, mode, pin_pwm, pin_dir, frequency=20000):
+    def __init__(self, mode, pin_pwm, pin_dir, frequency=100):
         """
         Initialize Cytron motor driver in PWM/DIR mode.
         
@@ -80,13 +68,15 @@ class CytronMD:
         # Setup GPIO pins
         GPIO.setup(self._pin_pwm, GPIO.OUT)
         GPIO.setup(self._pin_dir, GPIO.OUT)
+        
+        # IMPORTANT: Initialize to safe state BEFORE starting PWM
         GPIO.output(self._pin_pwm, GPIO.LOW)
         GPIO.output(self._pin_dir, GPIO.LOW)
 
         # Initialize PWM only on the PWM pin (AN)
         if self._mode == MODE.PWM_DIR:
             self.pwm = GPIO.PWM(self._pin_pwm, self._frequency)
-            self.pwm.start(0)
+            self.pwm.start(0)  # Start at 0% duty cycle
         elif self._mode == MODE.PWM_PWM:
             # Not used for MD30C in standard configuration
             self.pwm1 = GPIO.PWM(self._pin_pwm, self._frequency)
@@ -102,20 +92,20 @@ class CytronMD:
             speed: -255 to +255 (negative = reverse, positive = forward)
         """
         # Clamp speed to valid range
-        # speed = 255
         speed = max(min(speed, 255), -255)
         
-        # Calculate duty cycle percentage
-        duty_cycle = (abs(speed) / 255.0) * 100
+        # Calculate duty cycle percentage (0-100)
+        duty_cycle = (abs(speed) / 255.0) * 100.0
+        
         if self._mode == MODE.PWM_DIR:
-            # Set PWM duty cycle on AN pin
-            self.pwm.ChangeDutyCycle(duty_cycle)
-            
-            # Set direction on IN pin (Digital HIGH/LOW)
+            # Set direction FIRST, then speed (safer)
             if speed >= 0:
                 GPIO.output(self._pin_dir, GPIO.LOW)   # Forward
             else:
                 GPIO.output(self._pin_dir, GPIO.HIGH)  # Reverse
+            
+            # Set PWM duty cycle on AN pin
+            self.pwm.ChangeDutyCycle(duty_cycle)
                 
         elif self._mode == MODE.PWM_PWM:
             # Locked antiphase mode (not typically used)
@@ -127,13 +117,23 @@ class CytronMD:
                 self.pwm2.ChangeDutyCycle(duty_cycle)
 
     def cleanup(self):
-        """Stop PWM and cleanup."""
-        if hasattr(self, 'pwm'):
-            self.pwm.stop()
-        if hasattr(self, 'pwm1'):
-            self.pwm1.stop()
-        if hasattr(self, 'pwm2'):
-            self.pwm2.stop()
+        """Stop PWM and cleanup properly to prevent runaway."""
+        # CRITICAL: Set speed to 0 BEFORE stopping PWM
+        if self._mode == MODE.PWM_DIR:
+            if hasattr(self, 'pwm'):
+                self.pwm.ChangeDutyCycle(0)  # Set to 0% duty cycle
+                time.sleep(0.01)  # Brief delay to ensure it takes effect
+                self.pwm.stop()
+                # Set pins to LOW to ensure motor is off
+                GPIO.output(self._pin_pwm, GPIO.LOW)
+                GPIO.output(self._pin_dir, GPIO.LOW)
+        elif self._mode == MODE.PWM_PWM:
+            if hasattr(self, 'pwm1'):
+                self.pwm1.ChangeDutyCycle(0)
+                self.pwm1.stop()
+            if hasattr(self, 'pwm2'):
+                self.pwm2.ChangeDutyCycle(0)
+                self.pwm2.stop()
 
 # Stepper Motor Controller class with smoothing
 class StepperMotor:
@@ -256,6 +256,7 @@ class DriveController(Node):
         self.get_logger().info(f'Stepper update rate: {STEPPER_UPDATE_RATE}s ({1/STEPPER_UPDATE_RATE:.1f}Hz)')
         self.get_logger().info(f'Smoothing alpha: {SMOOTHING_ALPHA}')
         self.get_logger().info(f'Min movement: {MIN_ANGLE_MOVEMENT} rad ({math.degrees(MIN_ANGLE_MOVEMENT):.2f} deg)')
+        self.get_logger().info(f'Steps per rev: {STEPS_PER_REV}, Gear ratio: {STEER_STEPPER_GEAR_RATIO}')
         self.get_logger().info('Left motor:  PWM=GPIO12(AN1), DIR=GPIO5(IN1)')
         self.get_logger().info('Right motor: PWM=GPIO13(AN2), DIR=GPIO6(IN2)')
 
@@ -278,8 +279,9 @@ class DriveController(Node):
         
         try:
             # Extract values
-            throttle_left = float(data[0])   # m/s
-            throttle_right = float(data[1])  # m/s
+            # Convert from m/s to motor speed (-255 to 255)
+            throttle_left = float(data[0]) * 8.5   # m/s to motor speed
+            throttle_right = float(data[1]) * 8.5  # m/s to motor speed
             fl_angle = float(data[2])  # radians
             fr_angle = float(data[3])  # radians
         except Exception as e:
@@ -292,10 +294,8 @@ class DriveController(Node):
         )
 
         # Set DC motor speeds
-        throttle_left = 255
-        throttle_right = 255
-        self.motor_left.setSpeed(throttle_left)
-        self.motor_right.setSpeed(throttle_right)
+        self.motor_left.setSpeed(int(throttle_left))
+        self.motor_right.setSpeed(int(throttle_right))
         
         # Set target angles for stepper motors (doesn't move them yet)
         self.stepper_left.set_target_angle(fl_angle)
@@ -317,11 +317,22 @@ class DriveController(Node):
     def cleanup(self):
         """Stop motors and cleanup GPIO."""
         self.get_logger().info('Cleaning up motors...')
+        
+        # Stop DC motors FIRST
         self.motor_left.setSpeed(0)
         self.motor_right.setSpeed(0)
+        
+        # Small delay to ensure motors receive the stop command
+        time.sleep(0.05)
+        
+        # Now cleanup the motor drivers
         self.motor_left.cleanup()
         self.motor_right.cleanup()
+        
+        # Finally cleanup all GPIO
         GPIO.cleanup()
+        
+        self.get_logger().info('Cleanup complete')
 
 def main(args=None):
     rclpy.init(args=args)
