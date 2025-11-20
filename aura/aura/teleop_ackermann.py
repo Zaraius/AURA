@@ -20,7 +20,7 @@ class AckermannTeleop(Node):
 
         # Controller mapping (adjust for your joystick)
         self.axis_speed = 1    # Left stick vertical
-        self.axis_steer = 3    # Right stick horizontal
+        self.axis_steer = 2    # Right stick horizontal
         self.enable_button = 5 # Right bumper
 
         # Scaling factors

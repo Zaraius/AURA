@@ -28,8 +28,8 @@ DIR_LEFT = 7
 STEP_LEFT = 1 
 
 # Right stepper (front right wheel)
-DIR_RIGHT = 23  # BCM 23 = BOARD 16
-STEP_RIGHT = 24 # BCM 24 = BOARD 18
+DIR_RIGHT = 17  # BCM 23 = BOARD 16
+STEP_RIGHT = 27 # BCM 24 = BOARD 18
 
 # Stepper motor constants
 CW = 1
@@ -132,15 +132,17 @@ class StepperMotor:
     
     def radians_to_steps(self, angle_radians):
         """Convert angle in radians to number of steps"""
-        return int((angle_radians / (2 * math.pi)) * STEPS_PER_REV)
+        return int((angle_radians / (2 * math.pi)) * STEPS_PER_REV * 4)
     
     def move_to_angle(self, target_angle):
         """Move stepper to target angle (in radians)"""
         # Calculate angle difference
         angle_diff = target_angle - self.current_angle
+        print(f'FL={math.degrees(target_angle):.2f} deg')
         
         if abs(angle_diff) < 0.01:  # Threshold to avoid unnecessary movement 0.0314159 rad = 1.8 deg (200 steps)
             return
+
         
         # Determine direction
         direction = CW if angle_diff >= 0 else CCW
@@ -154,7 +156,8 @@ class StepperMotor:
             time.sleep(STEP_SLEEP_TIME)
             GPIO.output(self.step_pin, GPIO.LOW)
             time.sleep(STEP_SLEEP_TIME)
-        
+
+                
         # Update current position
         self.current_angle = target_angle
 
@@ -224,8 +227,8 @@ class DriveController(Node):
         self.motor_right.setSpeed(throttle_right)
         
         # Control stepper motors to set steering angles
-        # self.stepper_left.move_to_angle(fl_angle)
-        # self.stepper_right.move_to_angle(fr_angle)
+        self.stepper_left.move_to_angle(fl_angle)
+        self.stepper_right.move_to_angle(fr_angle)
 
     def cleanup(self):
         """Stop motors and cleanup GPIO."""
