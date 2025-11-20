@@ -102,11 +102,11 @@ class CytronMD:
             speed: -255 to +255 (negative = reverse, positive = forward)
         """
         # Clamp speed to valid range
+        # speed = 255
         speed = max(min(speed, 255), -255)
         
         # Calculate duty cycle percentage
         duty_cycle = (abs(speed) / 255.0) * 100
-        
         if self._mode == MODE.PWM_DIR:
             # Set PWM duty cycle on AN pin
             self.pwm.ChangeDutyCycle(duty_cycle)
@@ -292,6 +292,8 @@ class DriveController(Node):
         )
 
         # Set DC motor speeds
+        throttle_left = 255
+        throttle_right = 255
         self.motor_left.setSpeed(throttle_left)
         self.motor_right.setSpeed(throttle_right)
         

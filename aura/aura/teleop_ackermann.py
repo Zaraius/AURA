@@ -82,8 +82,8 @@ class AckermannTeleop(Node):
 
             self.get_logger().info(
                 f"v_center: {v_center:.2f}, steer_input: {steer_input:.2f}, "
-                f"FL: angle {fl_angle:.2f} rad, speed {fl_speed:.2f} rad/s, "
-                f"FR: angle {fr_angle:.2f} rad, speed {fr_speed:.2f} rad/s"
+                f"FL: angle {fl_angle:.2f} rad, speed {fl_speed:.2f} m/s, "
+                f"FR: angle {fr_angle:.2f} rad, speed {fr_speed:.2f} m/s"
             )
             return
 
