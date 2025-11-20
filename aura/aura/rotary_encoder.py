@@ -15,8 +15,8 @@ class EncoderNode(Node):
         self.publisher = self.create_publisher(Int32, 'encoder_position', 10)
 
         GPIO.setmode(GPIO.BCM)
-        GPIO.setup(A_PIN, GPIO.IN, pull_up_down=GPIO.PUD_OFF)
-        GPIO.setup(B_PIN, GPIO.IN, pull_up_down=GPIO.PUD_OFF)
+        GPIO.setup(A_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        GPIO.setup(B_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
         GPIO.add_event_detect(A_PIN, GPIO.BOTH, callback=self.handle_A)
 
