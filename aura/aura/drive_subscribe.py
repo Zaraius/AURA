@@ -54,6 +54,9 @@ MIN_ANGLE_MOVEMENT = 0.015        # Minimum angle change to move (radians)
                                  # 0.03 rad ≈ 1.7 degrees
                                  # Increase to reduce jitter, decrease for precision
 
+STEER_STEPPER_GEAR_RATIO = 8
+DRIVE_MOTOR_GEAR_RATIO = 16/9
+
 # Motor driver modes
 class MODE:
     PWM_DIR = 0
@@ -169,7 +172,7 @@ class StepperMotor:
     
     def radians_to_steps(self, angle_radians):
         """Convert angle in radians to number of steps"""
-        return int((angle_radians / (2 * math.pi)) * STEPS_PER_REV)
+        return int((angle_radians / (2 * math.pi)) * STEPS_PER_REV * STEER_STEPPER_GEAR_RATIO)
     
     def set_target_angle(self, angle):
         """
