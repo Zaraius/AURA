@@ -11,11 +11,11 @@ from aura.constants import MAX_SPEED, ENCODER_TICKS_PER_REV, WHEEL_RADIUS
 # DRIVE GPIO PIN ASSIGNMENTS (BCM)
 # ============================================
 # Motor A (Left) - Uses PWM Channel 0
-AN1 = 12   # PWM left motor (Hardware PWM0)
+AN1 = 13   # PWM left motor (Hardware PWM0)
 IN1 = 5    # DIR left motor (Digital)
 
 # Motor B (Right) - Uses PWM Channel 1
-AN2 = 13   # PWM right motor (Hardware PWM1)
+AN2 = 12   # PWM right motor (Hardware PWM1)
 IN2 = 6    # DIR right motor (Digital)
 
 # ============================================
@@ -218,8 +218,8 @@ class DriveController(Node):
         GPIO.setwarnings(False)
 
         # Initialize DC motor drivers in PWM_DIR mode
-        self.motor_left = CytronMD(MODE.PWM_DIR, AN2, IN2)
-        self.motor_right = CytronMD(MODE.PWM_DIR, AN1, IN1)
+        self.motor_left = CytronMD(MODE.PWM_DIR, AN1, IN1)
+        self.motor_right = CytronMD(MODE.PWM_DIR, AN2, IN2)
 
         # Initialize stepper motors for steering with smoothing
         self.stepper_left = StepperMotor(DIR_LEFT, STEP_LEFT)
@@ -231,8 +231,8 @@ class DriveController(Node):
         self.create_subscription(Int32, '/right_encoder', self.right_encoder_callback, 10)
 
         # PID controllers (P only for now)
-        self.pid_left = PID(0.0, 0, 0, setpoint=0)
-        self.pid_right = PID(0.0, 0, 0, setpoint=0)
+        self.pid_left = PID(1.0, 0, 0, setpoint=0)
+        self.pid_right = PID(1.0, 0, 0, setpoint=0)
         self.pid_left.output_limits = (-255, 255)
         self.pid_right.output_limits = (-255, 255)
 
@@ -305,7 +305,7 @@ class DriveController(Node):
         
         # Set target angles for stepper motors
         # self.stepper_left.set_target_angle(fl_angle)
-        self.stepper_right.set_target_angle(fr_angle)
+        # self.stepper_right.set_target_angle(fr_angle)
 
     def update_steppers(self):
         """
