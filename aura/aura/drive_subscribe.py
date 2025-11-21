@@ -7,11 +7,11 @@ import RPi.GPIO as GPIO
 # CORRECTED GPIO PIN ASSIGNMENTS (BCM)
 # ============================================
 # Motor A (Left) - Uses PWM Channel 0
-AN1 = 12   # PWM left motor (Hardware PWM0)
+AN1 = 13   # PWM left motor (Hardware PWM0)
 IN1 = 5    # DIR left motor (Digital)
 
 # Motor B (Right) - Uses PWM Channel 1
-AN2 = 13   # PWM right motor (Hardware PWM1)
+AN2 = 12   # PWM right motor (Hardware PWM1)
 IN2 = 6    # DIR right motor (Digital)
 
 # Motor driver modes
