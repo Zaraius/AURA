@@ -1,22 +1,22 @@
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float64
+from std_msgs.msg import Float64MultiArray, Int32
 import RPi.GPIO as GPIO
 import time
 import math
-from std_msgs.msg import Float64MultiArray
-from aura.constants import MAX_SPEED, ENCODER_TICKS_PER_REV
+from simple_pid import PID
+from aura.constants import MAX_SPEED, ENCODER_TICKS_PER_REV, WHEEL_RADIUS
 
 # ============================================
 # DRIVE GPIO PIN ASSIGNMENTS (BCM)
 # ============================================
 # Motor A (Left) - Uses PWM Channel 0
-AN2 = 12   # PWM left motor (Hardware PWM0)
-IN2 = 5    # DIR left motor (Digital)
+AN1 = 12   # PWM left motor (Hardware PWM0)
+IN1 = 5    # DIR left motor (Digital)
 
 # Motor B (Right) - Uses PWM Channel 1
-AN1 = 13   # PWM right motor (Hardware PWM1)
-IN1 = 6    # DIR right motor (Digital)
+AN2 = 13   # PWM right motor (Hardware PWM1)
+IN2 = 6    # DIR right motor (Digital)
 
 # ============================================
 # STEERING GPIO PIN ASSIGNMENTS (BCM)
@@ -85,60 +85,40 @@ class CytronMD:
             self.pwm1.start(0)
             self.pwm2.start(0)
 
-    def setSpeed(self, speed):
+    def setSpeedPWM(self, pwm_value):
         """
-        Set motor speed and direction.
+        Directly set PWM (0-255) with direction.
         
         Args:
-            speed: in m/s (negative = reverse, positive = forward)
+            pwm_value: PWM value from -255 to 255 (negative = reverse, positive = forward)
         """
-        
-        speed = max(min(speed, MAX_SPEED), -MAX_SPEED)
-
-        # Clamp speed to valid range
-        pwm = 255.0*speed/MAX_SPEED
-        print (f'PWM: {pwm}')
-        
         # Calculate duty cycle percentage (0-100)
-        duty_cycle = (abs(pwm) / 255.0) * 100.0
+        duty_cycle = (abs(pwm_value) / 255.0) * 100.0
         
         if self._mode == MODE.PWM_DIR:
             # Set direction FIRST, then speed (safer)
-            if pwm >= 0:
-                GPIO.output(self._pin_dir, GPIO.LOW)   # Forward
-            else:
-                GPIO.output(self._pin_dir, GPIO.HIGH)  # Reverse
-            
+            GPIO.output(self._pin_dir, GPIO.LOW if pwm_value >= 0 else GPIO.HIGH)
             # Set PWM duty cycle on AN pin
             self.pwm.ChangeDutyCycle(duty_cycle)
                 
         elif self._mode == MODE.PWM_PWM:
             # Locked antiphase mode (not typically used)
-            if pwm >= 0:
+            if pwm_value >= 0:
                 self.pwm1.ChangeDutyCycle(duty_cycle)
                 self.pwm2.ChangeDutyCycle(0)
             else:
                 self.pwm1.ChangeDutyCycle(0)
                 self.pwm2.ChangeDutyCycle(duty_cycle)
 
-    def cleanup(self):
-        """Stop PWM and cleanup properly to prevent runaway."""
-        # CRITICAL: Set speed to 0 BEFORE stopping PWM
+    def stop(self):
+        """Stop motor completely"""
         if self._mode == MODE.PWM_DIR:
-            if hasattr(self, 'pwm'):
-                self.pwm.ChangeDutyCycle(0)  # Set to 0% duty cycle
-                time.sleep(0.01)  # Brief delay to ensure it takes effect
-                self.pwm.stop()
-                # Set pins to LOW to ensure motor is off
-                GPIO.output(self._pin_pwm, GPIO.LOW)
-                GPIO.output(self._pin_dir, GPIO.LOW)
+            self.pwm.ChangeDutyCycle(0)
+            GPIO.output(self._pin_pwm, GPIO.LOW)
+            GPIO.output(self._pin_dir, GPIO.LOW)
         elif self._mode == MODE.PWM_PWM:
-            if hasattr(self, 'pwm1'):
-                self.pwm1.ChangeDutyCycle(0)
-                self.pwm1.stop()
-            if hasattr(self, 'pwm2'):
-                self.pwm2.ChangeDutyCycle(0)
-                self.pwm2.stop()
+            self.pwm1.ChangeDutyCycle(0)
+            self.pwm2.ChangeDutyCycle(0)
 
 # Stepper Motor Controller class with smoothing
 class StepperMotor:
@@ -238,119 +218,125 @@ class DriveController(Node):
         GPIO.setwarnings(False)
 
         # Initialize DC motor drivers in PWM_DIR mode
-        # Left motor: PWM on AN1 (GPIO12), DIR on IN1 (GPIO5)
-        self.motor_left = CytronMD(MODE.PWM_DIR, AN1, IN1)
-        
-        # Right motor: PWM on AN2 (GPIO13), DIR on IN2 (GPIO6)
-        self.motor_right = CytronMD(MODE.PWM_DIR, AN2, IN2)
+        self.motor_left = CytronMD(MODE.PWM_DIR, AN2, IN2)
+        self.motor_right = CytronMD(MODE.PWM_DIR, AN1, IN1)
 
         # Initialize stepper motors for steering with smoothing
         self.stepper_left = StepperMotor(DIR_LEFT, STEP_LEFT)
         self.stepper_right = StepperMotor(DIR_RIGHT, STEP_RIGHT)
 
-        # Subscribe to commanded topic
-        self.drive_sub = self.create_subscription(
-            Float64MultiArray, '/commanded', self.drive_callback, 10)
-        
+        # Subscriptions - commanded topic and encoder topics
+        self.create_subscription(Float64MultiArray, '/commanded', self.drive_callback, 10)
+        self.create_subscription(Int32, '/left_encoder', self.left_encoder_callback, 10)
+        self.create_subscription(Int32, '/right_encoder', self.right_encoder_callback, 10)
+
+        # PID controllers (P only for now)
+        self.pid_left = PID(0.0, 0, 0, setpoint=0)
+        self.pid_right = PID(0.0, 0, 0, setpoint=0)
+        self.pid_left.output_limits = (-255, 255)
+        self.pid_right.output_limits = (-255, 255)
+
+        # Current encoder tick counts
+        self.current_left_ticks = 0
+        self.current_right_ticks = 0
+
         # Create timer to periodically update stepper positions
-        # This runs at the rate specified by STEPPER_UPDATE_RATE
         timer_period = STEPPER_UPDATE_RATE / 2  # Check twice as often as update rate
         self.timer = self.create_timer(timer_period, self.update_steppers)
         
-        self.get_logger().info('Motor controller initialized with smoothing')
+        self.get_logger().info('Motor controller initialized with PID and smoothing')
         self.get_logger().info(f'Stepper update rate: {STEPPER_UPDATE_RATE}s ({1/STEPPER_UPDATE_RATE:.1f}Hz)')
         self.get_logger().info(f'Smoothing alpha: {SMOOTHING_ALPHA}')
         self.get_logger().info(f'Min movement: {MIN_ANGLE_MOVEMENT} rad ({math.degrees(MIN_ANGLE_MOVEMENT):.2f} deg)')
         self.get_logger().info(f'Steps per rev: {STEPS_PER_REV}, Gear ratio: {STEER_STEPPER_GEAR_RATIO}')
-        self.get_logger().info('Left motor:  PWM=GPIO12(AN1), DIR=GPIO5(IN1)')
-        self.get_logger().info('Right motor: PWM=GPIO13(AN2), DIR=GPIO6(IN2)')
+        self.get_logger().info('Left motor:  PWM=GPIO12(AN2), DIR=GPIO5(IN2)')
+        self.get_logger().info('Right motor: PWM=GPIO13(AN1), DIR=GPIO6(IN1)')
+
+    def left_encoder_callback(self, msg):
+        """Update current left encoder tick count"""
+        self.current_left_ticks = msg.data
+
+    def right_encoder_callback(self, msg):
+        """Update current right encoder tick count"""
+        self.current_right_ticks = msg.data
 
     def drive_callback(self, msg):
         """
         Process motor commands from /commanded topic.
-        Expected format: [throttle_left, throttle_right, fl_angle, fr_angle]
-        Angles are expected in radians.
+        Expected format: [target_left_mps, target_right_mps, fl_angle, fr_angle]
+        Speeds are in m/s, angles are in radians.
         """
-        try:
-            data = msg.data
-        except Exception:
-            self.get_logger().error('Received message without data field')
-            return
-
-        # Validate data length
-        if not hasattr(data, '__len__') or len(data) != 4:
+        data = msg.data
+        if len(data) != 4:
             self.get_logger().error('Expected 4 values in msg.data')
             return
         
-        try:
-            # Extract values
-            # Convert from m/s to motor speed (-255 to 255)
-            throttle_left = float(data[0])   # m/s to motor speed
-            throttle_right = float(data[1])  # m/s to motor speed
-            fl_angle = float(data[2])  # radians
-            fr_angle = float(data[3])  # radians
-        except Exception as e:
-            self.get_logger().error(f'Invalid data format: {e}')
-            return
+        # Extract values
+        target_left_mps = float(data[0])   # m/s
+        target_right_mps = float(data[1])  # m/s
+        fl_angle = float(data[2])          # radians
+        fr_angle = float(data[3])          # radians
+
+        # Convert target m/s to ticks per second
+        # Wheel circumference = 2 * pi * radius = 2 * pi * WHEEL_RADIUS
+        wheel_circumference = 2 * math.pi * WHEEL_RADIUS
+        target_left_ticks = target_left_mps * ENCODER_TICKS_PER_REV / wheel_circumference
+        target_right_ticks = target_right_mps * ENCODER_TICKS_PER_REV / wheel_circumference
+
+        # Update PID setpoints
+        self.pid_left.setpoint = target_left_ticks
+        self.pid_right.setpoint = target_right_ticks
+
+        # Calculate PID output (PWM values)
+        pwm_left = self.pid_left(self.current_left_ticks)
+        pwm_right = self.pid_right(self.current_right_ticks)
 
         self.get_logger().info(
-            f'L={throttle_left:.1f}, R={throttle_right:.1f} '
-            f'FL={math.degrees(fl_angle):.2f}°, FR={math.degrees(fr_angle):.2f}°'
+            f'Target L={target_left_mps:.2f}m/s ({target_left_ticks:.1f}ticks/s), '
+            f'R={target_right_mps:.2f}m/s ({target_right_ticks:.1f}ticks/s) | '
+            f'Current L={self.current_left_ticks}ticks, R={self.current_right_ticks}ticks | '
+            f'PWM L={pwm_left:.1f}, R={pwm_right:.1f} | '
+            f'Angles FL={math.degrees(fl_angle):.2f}°, FR={math.degrees(fr_angle):.2f}°'
         )
 
-        # Set DC motor speeds
-        # self.motor_left.setSpeed(int(throttle_left))
-        self.motor_right.setSpeed(int(throttle_right))
+        # Set motor speeds using PID output
+        self.motor_left.setSpeedPWM(pwm_left)
+        self.motor_right.setSpeedPWM(pwm_right)
         
-        # Set target angles for stepper motors (doesn't move them yet)
+        # Set target angles for stepper motors
         # self.stepper_left.set_target_angle(fl_angle)
         self.stepper_right.set_target_angle(fr_angle)
 
     def update_steppers(self):
         """
         Timer callback to periodically update stepper motor positions.
-        This is called at a fixed rate regardless of joystick input frequency.
         """
-        # Update both steppers
-        left_moved = self.stepper_left.update()
-        right_moved = self.stepper_right.update()
-        
-        # Optional: Log when motors actually move
-        # if left_moved or right_moved:
-        #     self.get_logger().debug('Steppers updated')
+        self.stepper_left.update()
+        self.stepper_right.update()
 
     def cleanup(self):
         """Stop motors and cleanup GPIO."""
         self.get_logger().info('Cleaning up motors...')
         
-        # Stop DC motors FIRST
-        self.motor_left.setSpeed(0)
-        self.motor_right.setSpeed(0)
+        # Stop DC motors
+        self.motor_left.stop()
+        self.motor_right.stop()
         
-        # Small delay to ensure motors receive the stop command
-        time.sleep(0.05)
-        
-        # Now cleanup the motor drivers
-        self.motor_left.cleanup()
-        self.motor_right.cleanup()
-        
-        # Finally cleanup all GPIO
+        # Cleanup GPIO
         GPIO.cleanup()
         
         self.get_logger().info('Cleanup complete')
 
 def main(args=None):
     rclpy.init(args=args)
-
-    drive_controller = DriveController()
-
+    node = DriveController()
     try:
-        rclpy.spin(drive_controller)
+        rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        drive_controller.cleanup()
-        drive_controller.destroy_node()
+        node.cleanup()
+        node.destroy_node()
         rclpy.shutdown()
 
 if __name__ == "__main__":
