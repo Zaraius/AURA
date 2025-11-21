@@ -109,8 +109,8 @@ class AutonomousNode(Node):
         Example: straight 1 m/s for 2 sec, then left turn for 2 sec.
         """
         self.get_logger().info("Running autonomy test…")
-        self.drive(0.75, 0.0, 20.0)       # Straight
-        self.drive(1.0, 0.25, 20.0)      # Turn left
+        self.drive(0.75, 0.0, 5.0)       # Straight
+        self.drive(1.0, 0.25, 5.0)      # Turn left
 
 
 def main(args=None):
