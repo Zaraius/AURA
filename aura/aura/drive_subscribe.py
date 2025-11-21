@@ -10,12 +10,12 @@ from std_msgs.msg import Float64MultiArray
 # DRIVE GPIO PIN ASSIGNMENTS (BCM)
 # ============================================
 # Motor A (Left) - Uses PWM Channel 0
-AN1 = 12   # PWM left motor (Hardware PWM0)
-IN1 = 5    # DIR left motor (Digital)
+AN2 = 12   # PWM left motor (Hardware PWM0)
+IN2 = 5    # DIR left motor (Digital)
 
 # Motor B (Right) - Uses PWM Channel 1
-AN2 = 13   # PWM right motor (Hardware PWM1)
-IN2 = 6    # DIR right motor (Digital)
+AN1 = 13   # PWM right motor (Hardware PWM1)
+IN1 = 6    # DIR right motor (Digital)
 
 # ============================================
 # STEERING GPIO PIN ASSIGNMENTS (BCM)
@@ -294,11 +294,11 @@ class DriveController(Node):
         )
 
         # Set DC motor speeds
-        self.motor_left.setSpeed(int(throttle_left))
+        # self.motor_left.setSpeed(int(throttle_left))
         self.motor_right.setSpeed(int(throttle_right))
         
         # Set target angles for stepper motors (doesn't move them yet)
-        self.stepper_left.set_target_angle(fl_angle)
+        # self.stepper_left.set_target_angle(fl_angle)
         self.stepper_right.set_target_angle(fr_angle)
 
     def update_steppers(self):
