@@ -1,0 +1,31 @@
+running develop
+running egg_info
+creating aura.egg-info
+writing aura.egg-info/PKG-INFO
+writing dependency_links to aura.egg-info/dependency_links.txt
+writing entry points to aura.egg-info/entry_points.txt
+writing requirements to aura.egg-info/requires.txt
+writing top-level names to aura.egg-info/top_level.txt
+writing manifest file 'aura.egg-info/SOURCES.txt'
+reading manifest file 'aura.egg-info/SOURCES.txt'
+writing manifest file 'aura.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/xavier/AURA/aura/install/aura/lib/python3.10/site-packages/aura.egg-link (link to .)
+Installing ackermann_driver script to /home/xavier/AURA/aura/install/aura/lib/aura
+Installing encoder script to /home/xavier/AURA/aura/install/aura/lib/aura
+Installing my_robot_driver script to /home/xavier/AURA/aura/install/aura/lib/aura
+Installing stepper script to /home/xavier/AURA/aura/install/aura/lib/aura
+Installing subscribe script to /home/xavier/AURA/aura/install/aura/lib/aura
+Installing teleop script to /home/xavier/AURA/aura/install/aura/lib/aura
+
+Installed /home/xavier/AURA/aura/build/aura
+running symlink_data
+creating /home/xavier/AURA/aura/install/aura/share/ament_index/resource_index/packages
+symbolically linking /home/xavier/AURA/aura/build/aura/resource/aura -> /home/xavier/AURA/aura/install/aura/share/ament_index/resource_index/packages
+symbolically linking /home/xavier/AURA/aura/build/aura/package.xml -> /home/xavier/AURA/aura/install/aura/share/aura
+creating /home/xavier/AURA/aura/install/aura/share/aura/launch
+symbolically linking /home/xavier/AURA/aura/build/aura/launch/robot_launch.py -> /home/xavier/AURA/aura/install/aura/share/aura/launch
+creating /home/xavier/AURA/aura/install/aura/share/aura/worlds
+symbolically linking /home/xavier/AURA/aura/build/aura/worlds/my_world.wbt -> /home/xavier/AURA/aura/install/aura/share/aura/worlds
+creating /home/xavier/AURA/aura/install/aura/share/aura/resource
+symbolically linking /home/xavier/AURA/aura/build/aura/resource/my_robot.urdf -> /home/xavier/AURA/aura/install/aura/share/aura/resource
