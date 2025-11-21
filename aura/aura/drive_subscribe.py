@@ -5,7 +5,7 @@ import RPi.GPIO as GPIO
 import time
 import math
 from simple_pid import PID
-from aura.constants import MAX_SPEED, ENCODER_TICKS_PER_REV, WHEEL_RADIUS
+from aura.constants import MAX_SPEED, ENCODER_TICKS_PER_REV, WHEEL_RADIUS, THEORETICAL_MAX_SPEED
 
 # ============================================
 # DRIVE GPIO PIN ASSIGNMENTS (BCM)
@@ -44,6 +44,14 @@ STEPPER_UPDATE_RATE = 0.01      # Time between stepper updates (0.01 = 100Hz)
 SMOOTHING_ALPHA = 0.5            # Filter strength (0.1 = smooth, 0.9 = responsive)
 MIN_ANGLE_MOVEMENT = 0.01        # Minimum angle change to move (radians)
 STEER_STEPPER_GEAR_RATIO = 8     # Gear ratio for steering
+
+# ============================================
+# PID CONTROL PARAMETERS
+# ============================================
+PID_UPDATE_RATE = 0.02           # PID update rate in seconds (50Hz)
+PID_KP = 10.0                     # Proportional gain (tune this!)
+PID_KI = 0.0                     # Integral gain (tune this!)
+PID_KD = 0.0                     # Derivative gain (tune this!)
 
 # Motor driver modes
 class MODE:
@@ -230,27 +238,40 @@ class DriveController(Node):
         self.create_subscription(Int32, '/left_encoder', self.left_encoder_callback, 10)
         self.create_subscription(Int32, '/right_encoder', self.right_encoder_callback, 10)
 
-        # PID controllers (P only for now)
-        self.pid_left = PID(1.0, 0, 0, setpoint=0)
-        self.pid_right = PID(1.0, 0, 0, setpoint=0)
-        self.pid_left.output_limits = (-255, 255)
-        self.pid_right.output_limits = (-255, 255)
+        # PID controllers - output is PWM (-255 to 255)
+        self.pid_left = PID(PID_KP, PID_KI, PID_KD, setpoint=0)
+        self.pid_right = PID(PID_KP, PID_KI, PID_KD, setpoint=0)
+        # set software hard limit on the motor pwm output speed
+        PWM_LIMIT = int(255 * MAX_SPEED / THEORETICAL_MAX_SPEED)
+        self.pid_left.output_limits = (-PWM_LIMIT, PWM_LIMIT)
+        self.pid_right.output_limits = (-PWM_LIMIT, PWM_LIMIT)
 
-        # Current encoder tick counts
+        # Speed calculation variables
+        self.prev_left_ticks = 0
+        self.prev_right_ticks = 0
         self.current_left_ticks = 0
         self.current_right_ticks = 0
+        self.current_left_speed = 0.0   # m/s
+        self.current_right_speed = 0.0  # m/s
+        self.last_speed_update = time.time()
 
+        # Target speeds from joystick
+        self.target_left_speed = 0.0   # m/s
+        self.target_right_speed = 0.0  # m/s
+
+        # Create timer for PID control loop
+        self.pid_timer = self.create_timer(PID_UPDATE_RATE, self.pid_control_loop)
+        
         # Create timer to periodically update stepper positions
         timer_period = STEPPER_UPDATE_RATE / 2  # Check twice as often as update rate
-        self.timer = self.create_timer(timer_period, self.update_steppers)
+        self.stepper_timer = self.create_timer(timer_period, self.update_steppers)
         
-        self.get_logger().info('Motor controller initialized with PID and smoothing')
+        self.get_logger().info('Motor controller initialized with PID speed control')
+        self.get_logger().info(f'PID update rate: {PID_UPDATE_RATE}s ({1/PID_UPDATE_RATE:.1f}Hz)')
+        self.get_logger().info(f'PID gains: Kp={PID_KP}, Ki={PID_KI}, Kd={PID_KD}')
         self.get_logger().info(f'Stepper update rate: {STEPPER_UPDATE_RATE}s ({1/STEPPER_UPDATE_RATE:.1f}Hz)')
         self.get_logger().info(f'Smoothing alpha: {SMOOTHING_ALPHA}')
-        self.get_logger().info(f'Min movement: {MIN_ANGLE_MOVEMENT} rad ({math.degrees(MIN_ANGLE_MOVEMENT):.2f} deg)')
-        self.get_logger().info(f'Steps per rev: {STEPS_PER_REV}, Gear ratio: {STEER_STEPPER_GEAR_RATIO}')
-        self.get_logger().info('Left motor:  PWM=GPIO12(AN2), DIR=GPIO5(IN2)')
-        self.get_logger().info('Right motor: PWM=GPIO13(AN1), DIR=GPIO6(IN1)')
+        self.get_logger().info(f'Wheel radius: {WHEEL_RADIUS}m, Encoder TPR: {ENCODER_TICKS_PER_REV}')
 
     def left_encoder_callback(self, msg):
         """Update current left encoder tick count"""
@@ -259,6 +280,72 @@ class DriveController(Node):
     def right_encoder_callback(self, msg):
         """Update current right encoder tick count"""
         self.current_right_ticks = msg.data
+
+    def calculate_speed(self):
+        """
+        Calculate current motor speeds in m/s from encoder changes.
+        Should be called at a regular interval (PID_UPDATE_RATE).
+        """
+        current_time = time.time()
+        dt = current_time - self.last_speed_update
+        
+        if dt <= 0:
+            return  # Avoid division by zero
+        
+        # Calculate tick changes
+        left_tick_delta = self.current_left_ticks - self.prev_left_ticks
+        right_tick_delta = self.current_right_ticks - self.prev_right_ticks
+        
+        # Calculate wheel rotations
+        left_rotations = left_tick_delta / ENCODER_TICKS_PER_REV
+        right_rotations = right_tick_delta / ENCODER_TICKS_PER_REV
+        
+        # Calculate distance traveled (circumference * rotations)
+        wheel_circumference = 2 * math.pi * WHEEL_RADIUS
+        left_distance = left_rotations * wheel_circumference
+        right_distance = right_rotations * wheel_circumference
+        
+        # Calculate speed (distance / time)
+        self.current_left_speed = left_distance / dt
+        self.current_right_speed = right_distance / dt
+        
+        # Update for next iteration
+        self.prev_left_ticks = self.current_left_ticks
+        self.prev_right_ticks = self.current_right_ticks
+        self.last_speed_update = current_time
+
+    def pid_control_loop(self):
+        """
+        Main PID control loop - runs at PID_UPDATE_RATE.
+        Calculates current speed and applies PID control.
+        """
+        # Calculate current speeds from encoder changes
+        self.calculate_speed()
+        
+        # Update PID setpoints (target speeds in m/s)
+        self.pid_left.setpoint = self.target_left_speed
+        self.pid_right.setpoint = self.target_right_speed
+        
+        # Calculate PID output (PWM values based on speed error)
+        pwm_left = self.pid_left(self.current_left_speed)
+        pwm_right = self.pid_right(self.current_right_speed)
+        
+        # Apply PWM to motors
+        self.motor_left.setSpeedPWM(pwm_left)
+        self.motor_right.setSpeedPWM(pwm_right)
+        
+        # Log every 10th update to avoid spam (every 0.2s at 50Hz)
+        if not hasattr(self, '_log_counter'):
+            self._log_counter = 0
+        self._log_counter += 1
+        
+        if self._log_counter >= 10:
+            self._log_counter = 0
+            self.get_logger().info(
+                f'Target: L={self.target_left_speed:.3f}m/s, R={self.target_right_speed:.3f}m/s | '
+                f'Actual: L={self.current_left_speed:.3f}m/s, R={self.current_right_speed:.3f}m/s | '
+                f'PWM: L={pwm_left:.1f}, R={pwm_right:.1f}'
+            )
 
     def drive_callback(self, msg):
         """
@@ -271,41 +358,15 @@ class DriveController(Node):
             self.get_logger().error('Expected 4 values in msg.data')
             return
         
-        # Extract values
-        target_left_mps = float(data[0])   # m/s
-        target_right_mps = float(data[1])  # m/s
-        fl_angle = float(data[2])          # radians
-        fr_angle = float(data[3])          # radians
-
-        # Convert target m/s to ticks per second
-        # Wheel circumference = 2 * pi * radius = 2 * pi * WHEEL_RADIUS
-        wheel_circumference = 2 * math.pi * WHEEL_RADIUS
-        target_left_ticks = target_left_mps * ENCODER_TICKS_PER_REV / wheel_circumference
-        target_right_ticks = target_right_mps * ENCODER_TICKS_PER_REV / wheel_circumference
-
-        # Update PID setpoints
-        self.pid_left.setpoint = target_left_ticks
-        self.pid_right.setpoint = target_right_ticks
-
-        # Calculate PID output (PWM values)
-        pwm_left = self.pid_left(self.current_left_ticks)
-        pwm_right = self.pid_right(self.current_right_ticks)
-
-        self.get_logger().info(
-            f'Target L={target_left_mps:.2f}m/s ({target_left_ticks:.1f}ticks/s), '
-            f'R={target_right_mps:.2f}m/s ({target_right_ticks:.1f}ticks/s) | '
-            f'Current L={self.current_left_ticks}ticks, R={self.current_right_ticks}ticks | '
-            f'PWM L={pwm_left:.1f}, R={pwm_right:.1f} | '
-            f'Angles FL={math.degrees(fl_angle):.2f}°, FR={math.degrees(fr_angle):.2f}°'
-        )
-
-        # Set motor speeds using PID output
-        self.motor_left.setSpeedPWM(pwm_left)
-        self.motor_right.setSpeedPWM(pwm_right)
+        # Extract values and update target speeds
+        self.target_left_speed = float(data[0])   # m/s
+        self.target_right_speed = float(data[1])  # m/s
+        fl_angle = float(data[2])                 # radians
+        fr_angle = float(data[3])                 # radians
         
         # Set target angles for stepper motors
-        # self.stepper_left.set_target_angle(fl_angle)
-        # self.stepper_right.set_target_angle(fr_angle)
+        self.stepper_left.set_target_angle(fl_angle)
+        self.stepper_right.set_target_angle(fr_angle)
 
     def update_steppers(self):
         """
