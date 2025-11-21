@@ -5,6 +5,7 @@ import RPi.GPIO as GPIO
 import time
 import math
 from std_msgs.msg import Float64MultiArray
+from aura.constants import MAX_SPEED
 
 # ============================================
 # DRIVE GPIO PIN ASSIGNMENTS (BCM)
@@ -89,17 +90,21 @@ class CytronMD:
         Set motor speed and direction.
         
         Args:
-            speed: -255 to +255 (negative = reverse, positive = forward)
+            speed: in m/s (negative = reverse, positive = forward)
         """
+        
+        speed = max(min(speed, MAX_SPEED), -MAX_SPEED)
+
         # Clamp speed to valid range
-        speed = max(min(speed, 255), -255)
+        pwm = 255.0*speed/MAX_SPEED
+        print (f'PWM: {pwm}')
         
         # Calculate duty cycle percentage (0-100)
-        duty_cycle = (abs(speed) / 255.0) * 100.0
+        duty_cycle = (abs(pwm) / 255.0) * 100.0
         
         if self._mode == MODE.PWM_DIR:
             # Set direction FIRST, then speed (safer)
-            if speed >= 0:
+            if pwm >= 0:
                 GPIO.output(self._pin_dir, GPIO.LOW)   # Forward
             else:
                 GPIO.output(self._pin_dir, GPIO.HIGH)  # Reverse
@@ -109,7 +114,7 @@ class CytronMD:
                 
         elif self._mode == MODE.PWM_PWM:
             # Locked antiphase mode (not typically used)
-            if speed >= 0:
+            if pwm >= 0:
                 self.pwm1.ChangeDutyCycle(duty_cycle)
                 self.pwm2.ChangeDutyCycle(0)
             else:
@@ -280,8 +285,8 @@ class DriveController(Node):
         try:
             # Extract values
             # Convert from m/s to motor speed (-255 to 255)
-            throttle_left = float(data[0]) * 8.5   # m/s to motor speed
-            throttle_right = float(data[1]) * 8.5  # m/s to motor speed
+            throttle_left = float(data[0])   # m/s to motor speed
+            throttle_right = float(data[1])  # m/s to motor speed
             fl_angle = float(data[2])  # radians
             fr_angle = float(data[3])  # radians
         except Exception as e:

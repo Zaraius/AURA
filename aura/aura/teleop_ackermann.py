@@ -5,7 +5,7 @@ from sensor_msgs.msg import Joy
 from ackermann_msgs.msg import AckermannDriveStamped
 from std_msgs.msg import Float64MultiArray
 
-from aura.constants import WHEELBASE, TRACK_WIDTH, WHEEL_RADIUS, MAX_STEERING_ANGLE, MAX_SPEED
+from aura.constants import WHEELBASE, TRACK_WIDTH, WHEEL_RADIUS, MAX_STEERING_ANGLE, MAX_SPEED_LINEAR
 
 class AckermannTeleop(Node):
     def __init__(self):
@@ -31,7 +31,7 @@ class AckermannTeleop(Node):
             self.enabled = True
 
             # Forward speed
-            v_center = joy_msg.axes[self.axis_speed] * MAX_SPEED
+            v_center = joy_msg.axes[self.axis_speed] * MAX_SPEED_LINEAR
 
             # Steering input mapped to physical max steering angle
             steer_input = joy_msg.axes[self.axis_steer] * MAX_STEERING_ANGLE
@@ -64,10 +64,6 @@ class AckermannTeleop(Node):
                 # Straight
                 fl_angle = fr_angle = 0.0
                 fl_speed = fr_speed = v_center
-
-            # Convert linear speed to wheel angular velocity
-            fl_speed /= WHEEL_RADIUS
-            fr_speed /= WHEEL_RADIUS
 
             # Publish AckermannDriveStamped for controllers
             drive_msg = AckermannDriveStamped()
