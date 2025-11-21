@@ -5,7 +5,7 @@ from sensor_msgs.msg import Joy
 from ackermann_msgs.msg import AckermannDriveStamped
 from std_msgs.msg import Float64MultiArray
 
-from aura.constants import WHEELBASE, TRACK_WIDTH, WHEEL_RADIUS, MAX_STEERING_ANGLE
+from aura.constants import WHEELBASE, TRACK_WIDTH, WHEEL_RADIUS, MAX_STEERING_ANGLE, MAX_SPEED_LINEAR
 
 class AckermannTeleop(Node):
     def __init__(self):
@@ -20,11 +20,9 @@ class AckermannTeleop(Node):
 
         # Controller mapping (adjust for your joystick)
         self.axis_speed = 1    # Left stick vertical
-        self.axis_steer = 3    # Right stick horizontal
+        self.axis_steer = 2    # Right stick horizontal
         self.enable_button = 5 # Right bumper
 
-        # Scaling factors
-        self.speed_scale = 1.0  # m/s scaling
         self.enabled = False
     
     def joy_callback(self, joy_msg: Joy):
@@ -33,7 +31,7 @@ class AckermannTeleop(Node):
             self.enabled = True
 
             # Forward speed
-            v_center = joy_msg.axes[self.axis_speed] * self.speed_scale
+            v_center = joy_msg.axes[self.axis_speed] * MAX_SPEED_LINEAR
 
             # Steering input mapped to physical max steering angle
             steer_input = joy_msg.axes[self.axis_steer] * MAX_STEERING_ANGLE
@@ -67,10 +65,6 @@ class AckermannTeleop(Node):
                 fl_angle = fr_angle = 0.0
                 fl_speed = fr_speed = v_center
 
-            # Convert linear speed to wheel angular velocity
-            fl_speed /= WHEEL_RADIUS
-            fr_speed /= WHEEL_RADIUS
-
             # Publish AckermannDriveStamped for controllers
             drive_msg = AckermannDriveStamped()
             drive_msg.drive.speed = v_center
@@ -82,11 +76,11 @@ class AckermannTeleop(Node):
             cmd_msg.data = [fl_speed, fr_speed, fl_angle, fr_angle]
             self.commanded_pub.publish(cmd_msg)
 
-            self.get_logger().info(
-                f"v_center: {v_center:.2f}, steer_input: {steer_input:.2f}, "
-                f"FL: angle {fl_angle:.2f} rad, speed {fl_speed:.2f} rad/s, "
-                f"FR: angle {fr_angle:.2f} rad, speed {fr_speed:.2f} rad/s"
-            )
+            # self.get_logger().info(
+            #     f"v_center: {v_center:.2f}, steer_input: {steer_input:.2f}, "
+            #     f"FL: angle {fl_angle:.2f} rad, speed {fl_speed:.2f} m/s, "
+            #     f"FR: angle {fr_angle:.2f} rad, speed {fr_speed:.2f} m/s"
+            # )
             return
 
         # Stop when enable button released
