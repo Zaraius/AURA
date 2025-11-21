@@ -5,7 +5,7 @@ import RPi.GPIO as GPIO
 import time
 import math
 from std_msgs.msg import Float64MultiArray
-from aura.constants import MAX_SPEED
+from aura.constants import MAX_SPEED, ENCODER_TICKS_PER_REV
 
 # ============================================
 # DRIVE GPIO PIN ASSIGNMENTS (BCM)
