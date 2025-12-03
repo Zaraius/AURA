@@ -29,14 +29,13 @@ setup(
     license='Apache-2.0',
     entry_points={
         'console_scripts': [
-            'my_robot_driver = aura.my_robot_driver:main',
             'subscribe = aura.drive_subscribe:main',
             'teleop = aura.teleop_ackermann:main',
-            'stepper = aura.stepper:main',
             'ackermann_driver = aura.ackermann_driver:main',
             'state_machine = aura.state_machine_node:main',
             'auto = aura.autonomous_node:main',
             'controller = aura.teleop_auto_controller:main',
+            'encoder = aura.rotary_encoder:main',
         ],
     },
 )
