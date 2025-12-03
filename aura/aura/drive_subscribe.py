@@ -341,11 +341,11 @@ class DriveController(Node):
         
         if self._log_counter >= 10:
             self._log_counter = 0
-            self.get_logger().info(
-                f'Target: L={self.target_left_speed:.3f}m/s, R={self.target_right_speed:.3f}m/s | '
-                f'Actual: L={self.current_left_speed:.3f}m/s, R={self.current_right_speed:.3f}m/s | '
-                f'PWM: L={pwm_left:.1f}, R={pwm_right:.1f}'
-            )
+            # self.get_logger().info(
+            #     f'Target: L={self.target_left_speed:.3f}m/s, R={self.target_right_speed:.3f}m/s | '
+            #     f'Actual: L={self.current_left_speed:.3f}m/s, R={self.current_right_speed:.3f}m/s | '
+            #     f'PWM: L={pwm_left:.1f}, R={pwm_right:.1f}'
+            # )
 
     def drive_callback(self, msg):
         """
@@ -363,7 +363,7 @@ class DriveController(Node):
         self.target_right_speed = float(data[1])  # m/s
         fl_angle = float(data[2])                 # radians
         fr_angle = float(data[3])                 # radians
-        
+        self.get_logger().info(f'Target: L={self.target_left_speed:.3f}m/s, R={self.target_right_speed:.3f}m/s fl_angle {fl_angle} fr_angle {fr_angle}')
         # Set target angles for stepper motors
         self.stepper_left.set_target_angle(fl_angle)
         self.stepper_right.set_target_angle(fr_angle)
