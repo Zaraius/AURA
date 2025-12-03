@@ -9,6 +9,8 @@ So it automatically builds when there are file updates. However, you need to red
 
 To run the setup test launch script: `ros2 launch aura test_launch.py`
 
+UWB modules have to be plugged into the RPi in order everytime! 
+
 # Setup Procedure
 
 Make sure all devices on `OLIN-ROBOTICS` WIFI
