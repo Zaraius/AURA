@@ -384,7 +384,7 @@ class DriveController(Node):
         self.motor_right.stop()
         
         # Cleanup GPIO
-        GPIO.cleanup()
+        # GPIO.cleanup()
         
         self.get_logger().info('Cleanup complete')
 
