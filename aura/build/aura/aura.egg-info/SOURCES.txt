@@ -2,7 +2,12 @@ package.xml
 setup.cfg
 setup.py
 aura/__init__.py
+aura/constants.py
+aura/drive_subscribe.py
 aura/my_robot_driver.py
+aura/rotary_encoder.py
+aura/stepper.py
+aura/teleop_ackermann.py
 aura.egg-info/PKG-INFO
 aura.egg-info/SOURCES.txt
 aura.egg-info/dependency_links.txt

@@ -1,1 +1,1 @@
-/root/ros2_ws/src/aura/launch/robot_launch.py
+/home/xavier/AURA/aura/launch/robot_launch.py
