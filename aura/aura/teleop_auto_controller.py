@@ -177,13 +177,13 @@ class AckermannDriveNode(Node):
         self.get_logger().info("=== AUTONOMOUS DEMO START ===")
         
         feet_to_meters = 0.3048
-        target_distance = 5.0 * feet_to_meters  # 5 feet
+        target_distance = 0.5 * feet_to_meters  # 5 feet
         
         # Queue segments: each segment is a dict with type, params
         self.auto_segment_queue = [
             {
                 'type': 'drive',
-                'speed': 0.5,
+                'speed': 10.0,
                 'steer': 0.0,
                 'distance': target_distance,
                 'name': 'Segment 1: 5 feet forward'
@@ -195,7 +195,7 @@ class AckermannDriveNode(Node):
             },
             {
                 'type': 'drive',
-                'speed': 0.5,
+                'speed': 10.0,
                 'steer': 0.2,
                 'distance': target_distance,
                 'name': 'Segment 2: 5 feet at angle'
@@ -247,6 +247,8 @@ class AckermannDriveNode(Node):
             
             # Check if distance reached
             distance_traveled = abs(self.get_distance_traveled())
+            self.get_logger().info(f"Distance: {distance_traveled:.3f}m / {target_distance:.3f}m | Left encoder: {self.left_encoder_ticks} | Right encoder: {self.right_encoder_ticks}")
+            
             if distance_traveled >= target_distance:
                 self.get_logger().info(f"Segment complete: {distance_traveled:.2f}m")
                 self.stop()
