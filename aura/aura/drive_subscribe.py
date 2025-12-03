@@ -359,8 +359,8 @@ class DriveController(Node):
             return
         
         # Extract values and update target speeds
-        self.target_left_speed = float(data[0])   # m/s
-        self.target_right_speed = float(data[1])  # m/s
+        self.target_left_speed = -float(data[0])   # m/s
+        self.target_right_speed = -float(data[1])  # m/s
         fl_angle = float(data[2])                 # radians
         fr_angle = float(data[3])                 # radians
         self.get_logger().info(f'Target: L={self.target_left_speed:.3f}m/s, R={self.target_right_speed:.3f}m/s fl_angle {fl_angle} fr_angle {fr_angle}')
