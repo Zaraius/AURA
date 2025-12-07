@@ -11,12 +11,12 @@ from aura.constants import MAX_SPEED, ENCODER_TICKS_PER_REV, WHEEL_RADIUS, THEOR
 # DRIVE GPIO PIN ASSIGNMENTS (BCM)
 # ============================================
 # Motor A (Left) - Uses PWM Channel 0
-AN1 = 13   # PWM left motor (Hardware PWM0)
-IN1 = 5    # DIR left motor (Digital)
+AN1 = 18   # PWM left motor (Hardware PWM0)
+IN1 = 19    # DIR left motor (Digital)
 
 # Motor B (Right) - Uses PWM Channel 1
-AN2 = 12   # PWM right motor (Hardware PWM1)
-IN2 = 6    # DIR right motor (Digital)
+AN2 = 20   # PWM right motor (Hardware PWM1)
+IN2 = 26    # DIR right motor (Digital)
 
 # ============================================
 # STEERING GPIO PIN ASSIGNMENTS (BCM)
