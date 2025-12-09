@@ -10,15 +10,11 @@ class DepthCamera(Node):
         super().__init__('depth_camera')
 
         # --- TUNABLE PARAMETERS ---
-        # 1. Brightness: How glowing must it be? (0-255)
-        self.declare_parameter('ir_threshold', 250)
-        
-        # 2. Size: Ignore tiny sparkles or huge windows
+        self.declare_parameter('ir_threshold', 245)
         self.declare_parameter('min_area', 50)
-        
-        # 3. Distance: Ignore reflections further than this (Meters)
+        self.declare_parameter('max_area', 10000)
         self.declare_parameter('max_distance', 6.0) 
-
+        self.declare_parameter('min_distance', 0.1)
         # --- SETUP PUBLISHER ---
         # Publishes: x (pixel), y (pixel), z (meters)
         self.publisher_ = self.create_publisher(Point, '/target', 10)
@@ -53,36 +49,6 @@ class DepthCamera(Node):
             max_laser = depth_sensor.get_option_range(rs.option.laser_power).max
             depth_sensor.set_option(rs.option.laser_power, max_laser)
 
-    def get_safe_depth(self, depth_frame, cx, cy):
-        """
-        Robust depth check. If the center of the cone is '0.0' (blinded),
-        it checks the immediate neighbors to find a valid value.
-        """
-        # 1. Check center pixel
-        dist = depth_frame.get_distance(cx, cy)
-        if 0.1 < dist < 10.0:
-            return dist
-
-        # 2. If center is invalid, check a small ring around it
-        # (Cones often glare in the middle but are fine on the edges)
-        valid_samples = []
-        radius = 5
-        check_points = [
-            (cx-radius, cy), (cx+radius, cy), 
-            (cx, cy-radius), (cx, cy+radius)
-        ]
-        
-        for px, py in check_points:
-            if 0 <= px < 640 and 0 <= py < 480:
-                d = depth_frame.get_distance(px, py)
-                if 0.1 < d < 10.0:
-                    valid_samples.append(d)
-        
-        if valid_samples:
-            return np.median(valid_samples)
-            
-        return 0.0 # Truly invalid
-
     def process_frame(self):
         frames = self.pipeline.wait_for_frames()
         ir_frame = frames.get_infrared_frame(1)
@@ -90,19 +56,24 @@ class DepthCamera(Node):
         
         if not ir_frame or not depth_frame: return
 
-        # Convert to numpy
+        # 1. Convert to Numpy
         ir_image = np.asanyarray(ir_frame.get_data())
 
-        # Get current parameter values
+        # Get Parameters (in case you want to tune live)
         thresh_val = self.get_parameter('ir_threshold').value
         min_area = self.get_parameter('min_area').value
+        max_area = self.get_parameter('max_area').value
         max_dist = self.get_parameter('max_distance').value
+        min_dist = self.get_parameter('min_distance').value
 
-        # --- VISION PIPELINE ---
-        # 1. Threshold
+        # 2. Threshold
         _, mask = cv2.threshold(ir_image, thresh_val, 255, cv2.THRESH_BINARY)
+        kernel = np.ones((10,10), np.uint8)
+
+        # 3. Morphology (Connect the dots)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         
-        # 2. Contours
+        # 4. Find Contours
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         if contours:
@@ -110,8 +81,10 @@ class DepthCamera(Node):
             sorted_contours = sorted(contours, key=cv2.contourArea, reverse=True)
             
             for c in sorted_contours:
+                area = cv2.contourArea(c)
+
                 # Filter 1: Area
-                if cv2.contourArea(c) < min_area:
+                if area < min_area or area > max_area:
                     continue
 
                 # Calculate Center
@@ -119,21 +92,22 @@ class DepthCamera(Node):
                 cx = x + w // 2
                 cy = y + h // 2
 
-                # Filter 2: Depth Gating
-                dist = self.get_safe_depth(depth_frame, cx, cy)
+                # Filter 2: Distance Check
+                dist = depth_frame.get_distance(cx, cy)
                 
-                # Check if valid AND within range
-                if dist > 0.0 and dist <= max_dist:
-                    # --- TARGET FOUND ---
-                    msg = Point()
-                    msg.x = float(cx)
-                    msg.y = float(cy)
-                    msg.z = float(dist)
-                    self.publisher_.publish(msg)
-                    
-                    # Optional: Debug Print
-                    # self.get_logger().info(f"Cone at {dist:.2f}m")
-                    break # Stop after finding the closest valid target
+                # Logic: Reject 0.0 (too close/blinded) and Too Far
+                if dist < min_dist or dist > max_dist:
+                    continue
+
+                # --- TARGET FOUND ---
+                msg = Point()
+                msg.x = float(cx)
+                msg.y = float(cy)
+                msg.z = float(dist)
+                self.publisher_.publish(msg)
+                
+                # We found the best target, stop looking at other contours
+                break
 
     def __del__(self):
         self.pipeline.stop()
@@ -141,13 +115,9 @@ class DepthCamera(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = DepthCamera()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
