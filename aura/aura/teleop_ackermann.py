@@ -3,7 +3,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Joy
 from ackermann_msgs.msg import AckermannDriveStamped
-from std_msgs.msg import Float64MultiArray
+from std_msgs.msg import Float64MultiArray, String
 
 from aura.constants import WHEELBASE, TRACK_WIDTH, WHEEL_RADIUS, MAX_STEERING_ANGLE, MAX_SPEED_LINEAR
 
@@ -17,7 +17,8 @@ class AckermannTeleop(Node):
 
         # Joystick subscription
         self.joy_sub = self.create_subscription(Joy, '/joy', self.joy_callback, 10)
-
+        self.mode = "STOP"
+        self.mode_sub = self.create_subscription(String, "/drive_mode", self.mode_callback, 10)
         # Controller mapping (adjust for your joystick)
         self.axis_speed = 1    # Left stick vertical
         self.axis_steer = 2    # Right stick horizontal
@@ -27,7 +28,7 @@ class AckermannTeleop(Node):
     
     def joy_callback(self, joy_msg: Joy):
         # Only act when enable button (RB) is pressed
-        if len(joy_msg.buttons) > self.enable_button and joy_msg.buttons[self.enable_button]:
+        if len(joy_msg.buttons) > self.enable_button and joy_msg.buttons[self.enable_button] and self.mode=="MANUAL":
             self.enabled = True
 
             # Forward speed
@@ -54,10 +55,8 @@ class AckermannTeleop(Node):
                     fl_speed = v_left
                     fr_speed = v_right
                 else:  # right turn
-                    fl_angle = right_angle_abs
-                    fr_angle = left_angle_abs
-                    fl_angle = -fl_angle
-                    fr_angle = -fr_angle
+                    fl_angle = -right_angle_abs
+                    fr_angle = -left_angle_abs
                     fl_speed = v_right
                     fr_speed = v_left
             else:
@@ -90,7 +89,10 @@ class AckermannTeleop(Node):
             stop_msg.data = [0.0, 0.0, 0.0, 0.0]
             self.commanded_pub.publish(stop_msg)
             self.get_logger().info("Commanded STOP after release")
-
+        
+        
+    def mode_callback(self, msg):
+        self.mode = msg.data
 
 def main(args=None):
     rclpy.init(args=args)

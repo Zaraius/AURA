@@ -36,8 +36,8 @@ class EncoderNode(Node):
         self.poll_timer = self.create_timer(0.001, self.poll_encoders)
 
         # Publish 50 Hz
-        self.pub_left = self.create_publisher(Int32, 'left_encoder', 10)
-        self.pub_right = self.create_publisher(Int32, 'right_encoder', 10)
+        self.pub_left = self.create_publisher(Int32, '/left_encoder', 10)
+        self.pub_right = self.create_publisher(Int32, '/right_encoder', 10)
 
         self.pub_timer = self.create_timer(0.02, self.publish_positions)
 
@@ -77,15 +77,10 @@ class EncoderNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = EncoderNode()
-
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        GPIO.cleanup()
-        node.destroy_node()
-        rclpy.shutdown()
+    rclpy.spin(node)
+    GPIO.cleanup()
+    node.destroy_node()
+    rclpy.shutdown()
 
 
 if __name__ == '__main__':
