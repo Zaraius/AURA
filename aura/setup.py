@@ -38,6 +38,7 @@ setup(
             'auto = aura.autonomous_node:main',
             'controller = aura.teleop_auto_controller:main',
             'encoder = aura.rotary_encoder:main',
+            'camera = aura.depth_camera:main',
         ],
     },
 )

@@ -23,16 +23,14 @@ def generate_launch_description():
             name='encoder'
         ),
         Node(
+            package='joy',
+            executable='joy_node',
+            name='joy'
+        ),
+        Node(
             package='aura',
             namespace='controller',
             executable='controller',
             name='controller'
         ),
-        Node(
-            package='joy',
-            namespace='joy_node',
-            executable='joy_node',
-            name='joy'
-        ),
-        
     ])
