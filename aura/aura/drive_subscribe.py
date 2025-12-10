@@ -1,11 +1,12 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray, Int32
+from geometry_msgs.msg import Pose2D
 import RPi.GPIO as GPIO
 import time
 import math
 from simple_pid import PID
-from aura.constants import MAX_SPEED, ENCODER_TICKS_PER_REV, WHEEL_RADIUS, THEORETICAL_MAX_SPEED
+from aura.constants import MAX_SPEED, ENCODER_TICKS_PER_REV, WHEEL_RADIUS, THEORETICAL_MAX_SPEED, WHEELBASE
 
 # ============================================
 # DRIVE GPIO PIN ASSIGNMENTS (BCM)
@@ -216,6 +217,44 @@ class StepperMotor:
         self.current_angle = self.target_angle
         return True
 
+def calc_odometry(left_ticks, right_ticks, left_angle, right_angle, 
+                  prev_left_ticks, prev_right_ticks,
+                  current_x, current_y, current_theta,
+                  wheel_radius, wheelbase_length, ticks_per_rev):
+    """Calculate odometry for front-wheel drive Ackermann robot."""
+    
+    distance_per_tick = (2 * math.pi * wheel_radius) / ticks_per_rev
+    
+    delta_left_ticks = left_ticks - prev_left_ticks
+    delta_right_ticks = right_ticks - prev_right_ticks
+    
+    left_distance = delta_left_ticks * distance_per_tick
+    right_distance = delta_right_ticks * distance_per_tick
+    front_distance = (left_distance + right_distance) / 2.0
+    avg_steering_angle = (left_angle + right_angle) / 2.0
+    
+    if abs(avg_steering_angle) < 1e-6:
+        delta_x = front_distance * math.cos(current_theta)
+        delta_y = front_distance * math.sin(current_theta)
+        delta_theta = 0.0
+    else:
+        turn_radius_rear = wheelbase_length / math.tan(avg_steering_angle)
+        delta_theta = front_distance / (turn_radius_rear * math.cos(avg_steering_angle))
+        
+        if abs(delta_theta) < 1e-6:
+            delta_x = front_distance * math.cos(current_theta)
+            delta_y = front_distance * math.sin(current_theta)
+        else:
+            delta_x = turn_radius_rear * (math.sin(current_theta + delta_theta) - math.sin(current_theta))
+            delta_y = -turn_radius_rear * (math.cos(current_theta + delta_theta) - math.cos(current_theta))
+    
+    new_x = current_x + delta_x
+    new_y = current_y + delta_y
+    new_theta = current_theta + delta_theta
+    new_theta = math.atan2(math.sin(new_theta), math.cos(new_theta))
+    
+    return new_x, new_y, new_theta
+
 # ROS Node
 class DriveController(Node):
     def __init__(self):
@@ -238,6 +277,9 @@ class DriveController(Node):
         self.create_subscription(Int32, '/left_encoder', self.left_encoder_callback, 10)
         self.create_subscription(Int32, '/right_encoder', self.right_encoder_callback, 10)
 
+        # Publisher for odometry
+        self.odom_pub = self.create_publisher(Pose2D, '/odom', 10)
+
         # PID controllers - output is PWM (-255 to 255)
         self.pid_left = PID(PID_KP, PID_KI, PID_KD, setpoint=0)
         self.pid_right = PID(PID_KP, PID_KI, PID_KD, setpoint=0)
@@ -258,6 +300,13 @@ class DriveController(Node):
         # Target speeds from joystick
         self.target_left_speed = 0.0   # m/s
         self.target_right_speed = 0.0  # m/s
+
+        # Odometry state
+        self.odom_x = 0.0
+        self.odom_y = 0.0
+        self.odom_theta = 0.0
+        self.odom_prev_left_ticks = 0
+        self.odom_prev_right_ticks = 0
 
         # Create timer for PID control loop
         self.pid_timer = self.create_timer(PID_UPDATE_RATE, self.pid_control_loop)
@@ -333,6 +382,26 @@ class DriveController(Node):
         # Apply PWM to motors
         self.motor_left.setSpeedPWM(pwm_left)
         self.motor_right.setSpeedPWM(pwm_right)
+        
+        # Update and publish odometry
+        self.odom_x, self.odom_y, self.odom_theta = calc_odometry(
+            self.current_left_ticks, self.current_right_ticks,
+            self.stepper_left.current_angle, self.stepper_right.current_angle,
+            self.odom_prev_left_ticks, self.odom_prev_right_ticks,
+            self.odom_x, self.odom_y, self.odom_theta,
+            WHEEL_RADIUS, WHEELBASE, ENCODER_TICKS_PER_REV
+        )
+        
+        # Update previous ticks for odometry
+        self.odom_prev_left_ticks = self.current_left_ticks
+        self.odom_prev_right_ticks = self.current_right_ticks
+        
+        # Publish odometry
+        odom_msg = Pose2D()
+        odom_msg.x = self.odom_x
+        odom_msg.y = self.odom_y
+        odom_msg.theta = self.odom_theta
+        self.odom_pub.publish(odom_msg)
         
         # Log every 10th update to avoid spam (every 0.2s at 50Hz)
         if not hasattr(self, '_log_counter'):

@@ -21,7 +21,7 @@ class OdometryVisualizer(Node):
         )
         
         # Store trajectory history
-        self.max_history = 1000  # Keep last 1000 points
+        self.max_history = 1000
         self.x_history = deque(maxlen=self.max_history)
         self.y_history = deque(maxlen=self.max_history)
         
@@ -57,7 +57,7 @@ class OdometryVisualizer(Node):
         self.ani = animation.FuncAnimation(
             self.fig, 
             self.update_plot, 
-            interval=50,  # Update every 50ms (20 Hz)
+            interval=50,
             blit=False
         )
         
@@ -65,7 +65,7 @@ class OdometryVisualizer(Node):
         self.get_logger().info('Subscribing to /odom topic...')
         
     def odom_callback(self, msg):
-        """Callback function for odometry messages"""
+        """Callback for Pose2D messages from /odom topic"""
         self.current_x = msg.x
         self.current_y = msg.y
         self.current_theta = msg.theta
