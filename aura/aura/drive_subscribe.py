@@ -1,11 +1,12 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray, Int32
+from geometry_msgs.msg import Pose2D
 import RPi.GPIO as GPIO
 import time
 import math
 from simple_pid import PID
-from aura.constants import MAX_SPEED, ENCODER_TICKS_PER_REV, WHEEL_RADIUS, THEORETICAL_MAX_SPEED
+from aura.constants import MAX_SPEED, ENCODER_TICKS_PER_REV, WHEEL_RADIUS, THEORETICAL_MAX_SPEED, WHEELBASE
 
 # ============================================
 # DRIVE GPIO PIN ASSIGNMENTS (BCM)
@@ -34,15 +35,8 @@ STEP_RIGHT = 27
 # Stepper motor constants
 CW = 1
 CCW = 0
-STEPS_PER_REV = 400  # 1/2 microstepping (adjust controller accordingly)
+STEPS_PER_REV = 1600  # 1/2 microstepping (adjust controller accordingly)
 STEP_SLEEP_TIME = 0.0005  # delay between step pin toggles
-
-# ============================================
-# SMOOTHING PARAMETERS - ADJUST THESE!
-# ============================================
-STEPPER_UPDATE_RATE = 0.01      # Time between stepper updates (0.01 = 100Hz)
-SMOOTHING_ALPHA = 0.5            # Filter strength (0.1 = smooth, 0.9 = responsive)
-MIN_ANGLE_MOVEMENT = 0.01        # Minimum angle change to move (radians)
 STEER_STEPPER_GEAR_RATIO = 8     # Gear ratio for steering
 
 # ============================================
@@ -128,33 +122,21 @@ class CytronMD:
             self.pwm1.ChangeDutyCycle(0)
             self.pwm2.ChangeDutyCycle(0)
 
-# Stepper Motor Controller class with smoothing
+# Stepper Motor Controller class - NO SMOOTHING
 class StepperMotor:
-    def __init__(self, dir_pin, step_pin, update_interval=STEPPER_UPDATE_RATE, 
-                 alpha=SMOOTHING_ALPHA, min_movement=MIN_ANGLE_MOVEMENT):
+    def __init__(self, dir_pin, step_pin):
         """
-        Initialize stepper motor with smoothing.
+        Initialize stepper motor without smoothing.
         
         Args:
             dir_pin: GPIO pin for direction
             step_pin: GPIO pin for step signal
-            update_interval: Time between updates in seconds (lower = faster updates)
-            alpha: Smoothing factor 0-1 (lower = smoother, higher = more responsive)
-            min_movement: Minimum angle change in radians to trigger movement
         """
         self.dir_pin = dir_pin
         self.step_pin = step_pin
         
         # Position tracking
         self.current_angle = 0.0      # Actual current position
-        self.target_angle = 0.0       # Raw target from joystick
-        self.filtered_angle = 0.0     # Smoothed target
-        
-        # Smoothing parameters
-        self.update_interval = update_interval
-        self.alpha = alpha
-        self.min_movement = min_movement
-        self.last_update_time = time.time()
         
         # Setup GPIO
         GPIO.setup(self.dir_pin, GPIO.OUT)
@@ -166,37 +148,16 @@ class StepperMotor:
         """Convert angle in radians to number of steps"""
         return int((angle_radians / (2 * math.pi)) * STEPS_PER_REV * STEER_STEPPER_GEAR_RATIO)
     
-    def set_target_angle(self, angle):
+    def prepare_move(self, target_angle):
         """
-        Set new target angle from joystick input.
-        This applies exponential moving average filtering.
+        Prepare to move to target angle (set direction and calculate steps).
+        Returns number of steps needed.
         
         Args:
-            angle: Target angle in radians
+            target_angle: Target angle in radians
         """
-        # Apply exponential moving average filter
-        self.filtered_angle = self.alpha * angle + (1 - self.alpha) * self.filtered_angle
-        self.target_angle = self.filtered_angle
-    
-    def update(self):
-        """
-        Periodically move stepper toward target angle.
-        Call this regularly (e.g., from a timer callback).
-        Returns True if motor moved, False otherwise.
-        """
-        # Check if enough time has passed since last update
-        current_time = time.time()
-        if current_time - self.last_update_time < self.update_interval:
-            return False
-        
-        self.last_update_time = current_time
-        
         # Calculate angle difference
-        angle_diff = self.target_angle - self.current_angle
-        
-        # Don't move if difference is too small
-        if abs(angle_diff) < self.min_movement:
-            return False
+        angle_diff = target_angle - self.current_angle
         
         # Determine direction
         direction = CW if angle_diff >= 0 else CCW
@@ -205,16 +166,62 @@ class StepperMotor:
         # Calculate steps needed
         steps = abs(self.radians_to_steps(angle_diff))
         
-        # Move the motor
-        for _ in range(steps):
-            GPIO.output(self.step_pin, GPIO.HIGH)
-            time.sleep(STEP_SLEEP_TIME)
-            GPIO.output(self.step_pin, GPIO.LOW)
-            time.sleep(STEP_SLEEP_TIME)
+        # Store target for later update
+        self.target_angle = target_angle
         
-        # Update current position
+        return steps
+    
+    def set_step_high(self):
+        """Set step pin HIGH."""
+        GPIO.output(self.step_pin, GPIO.HIGH)
+    
+    def set_step_low(self):
+        """Set step pin LOW."""
+        GPIO.output(self.step_pin, GPIO.LOW)
+    
+    def finalize_move(self):
+        """Update current position after move is complete."""
         self.current_angle = self.target_angle
-        return True
+        
+def calc_odometry(left_ticks, right_ticks, left_angle, right_angle, 
+                  prev_left_ticks, prev_right_ticks,
+                  current_x, current_y, current_theta,
+                  wheel_radius, wheelbase_length, ticks_per_rev):
+    """
+    Calculate odometry for front-wheel drive Ackermann robot.
+    NOTE: theta represents the direction the robot is trying to go (average front wheel direction).
+    """
+    
+    distance_per_tick = (2 * math.pi * wheel_radius) / ticks_per_rev
+    
+    delta_left_ticks = left_ticks - prev_left_ticks
+    delta_right_ticks = right_ticks - prev_right_ticks
+    
+    left_distance = delta_left_ticks * distance_per_tick
+    right_distance = delta_right_ticks * distance_per_tick
+    front_distance = (left_distance + right_distance) / 2.0
+    
+    # Theta is just the average of the front wheel angles (the direction wheels are pointing)
+    avg_steering_angle = (left_angle + right_angle) / 2.0
+    new_theta = avg_steering_angle
+    new_theta = math.atan2(math.sin(new_theta), math.cos(new_theta))  # Normalize to [-pi, pi]
+    
+    if abs(avg_steering_angle) < 1e-6 or abs(front_distance) < 1e-6:
+        # Straight wheels or no movement
+        delta_x = front_distance * math.cos(new_theta)
+        delta_y = front_distance * math.sin(new_theta)
+    else:
+        # Turning motion
+        turn_radius = wheelbase_length / math.tan(avg_steering_angle)
+        
+        # Calculate arc length and position change based on wheel direction
+        delta_x = front_distance * math.cos(new_theta)
+        delta_y = front_distance * math.sin(new_theta)
+    
+    new_x = current_x + delta_x
+    new_y = current_y + delta_y
+    
+    return new_x, new_y, new_theta
 
 # ROS Node
 class DriveController(Node):
@@ -229,7 +236,7 @@ class DriveController(Node):
         self.motor_left = CytronMD(MODE.PWM_DIR, AN1, IN1)
         self.motor_right = CytronMD(MODE.PWM_DIR, AN2, IN2)
 
-        # Initialize stepper motors for steering with smoothing
+        # Initialize stepper motors for steering - NO SMOOTHING
         self.stepper_left = StepperMotor(DIR_LEFT, STEP_LEFT)
         self.stepper_right = StepperMotor(DIR_RIGHT, STEP_RIGHT)
 
@@ -237,6 +244,9 @@ class DriveController(Node):
         self.create_subscription(Float64MultiArray, '/commanded', self.drive_callback, 10)
         self.create_subscription(Int32, '/left_encoder', self.left_encoder_callback, 10)
         self.create_subscription(Int32, '/right_encoder', self.right_encoder_callback, 10)
+
+        # Publisher for odometry
+        self.odom_pub = self.create_publisher(Pose2D, '/odom', 10)
 
         # PID controllers - output is PWM (-255 to 255)
         self.pid_left = PID(PID_KP, PID_KI, PID_KD, setpoint=0)
@@ -259,18 +269,20 @@ class DriveController(Node):
         self.target_left_speed = 0.0   # m/s
         self.target_right_speed = 0.0  # m/s
 
+        # Odometry state
+        self.odom_x = 0.0
+        self.odom_y = 0.0
+        self.odom_theta = 0.0
+        self.odom_prev_left_ticks = 0
+        self.odom_prev_right_ticks = 0
+
         # Create timer for PID control loop
         self.pid_timer = self.create_timer(PID_UPDATE_RATE, self.pid_control_loop)
-        
-        # Create timer to periodically update stepper positions
-        timer_period = STEPPER_UPDATE_RATE / 2  # Check twice as often as update rate
-        self.stepper_timer = self.create_timer(timer_period, self.update_steppers)
         
         self.get_logger().info('Motor controller initialized with PID speed control')
         self.get_logger().info(f'PID update rate: {PID_UPDATE_RATE}s ({1/PID_UPDATE_RATE:.1f}Hz)')
         self.get_logger().info(f'PID gains: Kp={PID_KP}, Ki={PID_KI}, Kd={PID_KD}')
-        self.get_logger().info(f'Stepper update rate: {STEPPER_UPDATE_RATE}s ({1/STEPPER_UPDATE_RATE:.1f}Hz)')
-        self.get_logger().info(f'Smoothing alpha: {SMOOTHING_ALPHA}')
+        self.get_logger().info(f'Stepper smoothing: DISABLED (direct control)')
         self.get_logger().info(f'Wheel radius: {WHEEL_RADIUS}m, Encoder TPR: {ENCODER_TICKS_PER_REV}')
 
     def left_encoder_callback(self, msg):
@@ -334,6 +346,26 @@ class DriveController(Node):
         self.motor_left.setSpeedPWM(pwm_left)
         self.motor_right.setSpeedPWM(pwm_right)
         
+        # Update and publish odometry
+        self.odom_x, self.odom_y, self.odom_theta = calc_odometry(
+            self.current_left_ticks, self.current_right_ticks,
+            self.stepper_left.current_angle, self.stepper_right.current_angle,
+            self.odom_prev_left_ticks, self.odom_prev_right_ticks,
+            self.odom_x, self.odom_y, self.odom_theta,
+            WHEEL_RADIUS, WHEELBASE, ENCODER_TICKS_PER_REV
+        )
+        
+        # Update previous ticks for odometry
+        self.odom_prev_left_ticks = self.current_left_ticks
+        self.odom_prev_right_ticks = self.current_right_ticks
+        
+        # Publish odometry
+        odom_msg = Pose2D()
+        odom_msg.x = self.odom_x
+        odom_msg.y = self.odom_y
+        odom_msg.theta = self.odom_theta
+        self.odom_pub.publish(odom_msg)
+        
         # Log every 10th update to avoid spam (every 0.2s at 50Hz)
         if not hasattr(self, '_log_counter'):
             self._log_counter = 0
@@ -364,16 +396,34 @@ class DriveController(Node):
         fl_angle = float(data[2])                 # radians
         fr_angle = float(data[3])                 # radians
         self.get_logger().info(f'Target: L={self.target_left_speed:.3f}m/s, R={self.target_right_speed:.3f}m/s fl_angle {fl_angle} fr_angle {fr_angle}')
-        # Set target angles for stepper motors
-        self.stepper_left.set_target_angle(fl_angle)
-        self.stepper_right.set_target_angle(fr_angle)
-
-    def update_steppers(self):
-        """
-        Timer callback to periodically update stepper motor positions.
-        """
-        self.stepper_left.update()
-        self.stepper_right.update()
+        
+        # Move stepper motors concurrently to target angles
+        # Prepare both motors (set direction and calculate steps)
+        steps_left = self.stepper_left.prepare_move(fl_angle)
+        steps_right = self.stepper_right.prepare_move(fr_angle)
+        
+        # Execute steps concurrently with proper timing
+        max_steps = max(steps_left, steps_right)
+        for i in range(max_steps):
+            # Set step pins HIGH for motors that need to step
+            if i < steps_left:
+                self.stepper_left.set_step_high()
+            if i < steps_right:
+                self.stepper_right.set_step_high()
+            
+            time.sleep(STEP_SLEEP_TIME)
+            
+            # Set step pins LOW
+            if i < steps_left:
+                self.stepper_left.set_step_low()
+            if i < steps_right:
+                self.stepper_right.set_step_low()
+            
+            time.sleep(STEP_SLEEP_TIME)
+        
+        # Finalize position updates
+        self.stepper_left.finalize_move()
+        self.stepper_right.finalize_move()
 
     def cleanup(self):
         """Stop motors and cleanup GPIO."""

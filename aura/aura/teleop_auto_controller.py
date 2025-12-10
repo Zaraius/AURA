@@ -27,6 +27,7 @@ class AckermannDriveNode(Node):
         # Controller button mapping
         self.button_auto = 4      # Button 4 for AUTO/FOLLOW mode
         self.button_manual = 5    # Button 5 for MANUAL mode
+        self.button_a = 1         # Button 1 for button A
         self.axis_speed = 1       # Left stick vertical
         self.axis_steer = 2       # Right stick horizontal
 
