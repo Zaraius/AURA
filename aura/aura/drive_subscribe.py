@@ -182,12 +182,15 @@ class StepperMotor:
     def finalize_move(self):
         """Update current position after move is complete."""
         self.current_angle = self.target_angle
-
+        
 def calc_odometry(left_ticks, right_ticks, left_angle, right_angle, 
                   prev_left_ticks, prev_right_ticks,
                   current_x, current_y, current_theta,
                   wheel_radius, wheelbase_length, ticks_per_rev):
-    """Calculate odometry for front-wheel drive Ackermann robot."""
+    """
+    Calculate odometry for front-wheel drive Ackermann robot.
+    NOTE: theta represents the direction the robot is trying to go (average front wheel direction).
+    """
     
     distance_per_tick = (2 * math.pi * wheel_radius) / ticks_per_rev
     
@@ -197,27 +200,26 @@ def calc_odometry(left_ticks, right_ticks, left_angle, right_angle,
     left_distance = delta_left_ticks * distance_per_tick
     right_distance = delta_right_ticks * distance_per_tick
     front_distance = (left_distance + right_distance) / 2.0
-    avg_steering_angle = (left_angle + right_angle) / 2.0
     
-    if abs(avg_steering_angle) < 1e-6:
-        delta_x = front_distance * math.cos(current_theta)
-        delta_y = front_distance * math.sin(current_theta)
-        delta_theta = 0.0
+    # Theta is just the average of the front wheel angles (the direction wheels are pointing)
+    avg_steering_angle = (left_angle + right_angle) / 2.0
+    new_theta = avg_steering_angle
+    new_theta = math.atan2(math.sin(new_theta), math.cos(new_theta))  # Normalize to [-pi, pi]
+    
+    if abs(avg_steering_angle) < 1e-6 or abs(front_distance) < 1e-6:
+        # Straight wheels or no movement
+        delta_x = front_distance * math.cos(new_theta)
+        delta_y = front_distance * math.sin(new_theta)
     else:
-        turn_radius_rear = wheelbase_length / math.tan(avg_steering_angle)
-        delta_theta = front_distance / (turn_radius_rear * math.cos(avg_steering_angle))
+        # Turning motion
+        turn_radius = wheelbase_length / math.tan(avg_steering_angle)
         
-        if abs(delta_theta) < 1e-6:
-            delta_x = front_distance * math.cos(current_theta)
-            delta_y = front_distance * math.sin(current_theta)
-        else:
-            delta_x = turn_radius_rear * (math.sin(current_theta + delta_theta) - math.sin(current_theta))
-            delta_y = -turn_radius_rear * (math.cos(current_theta + delta_theta) - math.cos(current_theta))
+        # Calculate arc length and position change based on wheel direction
+        delta_x = front_distance * math.cos(new_theta)
+        delta_y = front_distance * math.sin(new_theta)
     
     new_x = current_x + delta_x
     new_y = current_y + delta_y
-    new_theta = current_theta + delta_theta
-    new_theta = math.atan2(math.sin(new_theta), math.cos(new_theta))
     
     return new_x, new_y, new_theta
 
