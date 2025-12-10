@@ -1,0 +1,16 @@
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      # ... (standard params)
+      plugins: ["voxel_layer", "inflation_layer"]
+      
+      voxel_layer:
+        plugin: "nav2_costmap_2d::VoxelLayer"
+        enabled: true
+        observation_sources: scan  # <--- ID we create
+        scan:
+          topic: /scan             # <--- BINDING HAPPENS HERE
+          max_obstacle_height: 2.0
+          clearing: true           # If lidar sees nothing, clear the map
+          marking: true            # If lidar sees object, mark the map
+          data_type: "LaserScan"
