@@ -60,7 +60,7 @@ class AckermannDriveNode(Node):
         # Follower Tuning Parameters
         self.target_offset = 1.0       # Maintain 0.5 meter distance
         self.follow_kp_speed = 30     # P-Gain for Speed
-        self.follow_kp_steer = 0.0     # P-Gain for Steering
+        self.follow_kp_steer = 5.0     # P-Gain for Steering
         self.deadband_dist = 0.1       # 10cm tolerance
         self.vision_timeout = 0.5      # Stop if no target seen for 0.5s
 
@@ -232,7 +232,7 @@ class AckermannDriveNode(Node):
         # Image Center = 320. 
         # Left (x < 320) -> Error positive -> Turn Left
         # Right (x > 320) -> Error negative -> Turn Right
-        steer_error = (320.0 - target.x) / 320.0
+        steer_error = -(320.0 - target.x) / 320.0 # invert it because camera is mounted upside down
         cmd_steer = steer_error * self.follow_kp_steer
 
         # --- SPEED CONTROL (P-Controller with Offset) ---

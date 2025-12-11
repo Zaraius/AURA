@@ -13,7 +13,7 @@ class DepthCamera(Node):
         self.declare_parameter('ir_threshold', 245)
         self.declare_parameter('min_area', 50)
         self.declare_parameter('max_area', 10000)
-        self.declare_parameter('max_distance', 6.0) 
+        self.declare_parameter('max_distance', 2.75) 
         self.declare_parameter('min_distance', 0.1)
         # --- SETUP PUBLISHER ---
         # Publishes: x (pixel), y (pixel), z (meters)

@@ -123,6 +123,104 @@ class CytronMD:
             self.pwm1.ChangeDutyCycle(0)
             self.pwm2.ChangeDutyCycle(0)
 
+# Concurrent DC Motor Controller with PID
+class ConcurrentDCMotor:
+    def __init__(self, motor_driver, encoder_ticks_per_rev, wheel_radius, kp, ki, kd, name="motor"):
+        """
+        Initialize DC motor with concurrent PID control.
+        
+        Args:
+            motor_driver: CytronMD instance
+            encoder_ticks_per_rev: Encoder ticks per revolution
+            wheel_radius: Wheel radius in meters
+            kp, ki, kd: PID gains
+            name: Name for logging
+        """
+        self.motor = motor_driver
+        self.name = name
+        self.encoder_tpr = encoder_ticks_per_rev
+        self.wheel_radius = wheel_radius
+        
+        # PID controller
+        PWM_LIMIT = 255
+        self.pid = PID(kp, ki, kd, setpoint=0)
+        self.pid.output_limits = (-PWM_LIMIT, PWM_LIMIT)
+        
+        # State variables
+        self.target_speed = 0.0  # m/s
+        self.current_speed = 0.0  # m/s
+        self.current_ticks = 0
+        self.prev_ticks = 0
+        self.last_update = time.time()
+        
+        # Thread control
+        self.running = False
+        self.thread = None
+        self.lock = threading.Lock()
+        
+    def update_encoder(self, ticks):
+        """Update encoder tick count (called from encoder callback)"""
+        with self.lock:
+            self.current_ticks = ticks
+    
+    def set_target_speed(self, speed_mps):
+        """Set target speed in m/s"""
+        with self.lock:
+            self.target_speed = speed_mps
+    
+    def get_current_speed(self):
+        """Get current speed in m/s"""
+        with self.lock:
+            return self.current_speed
+    
+    def start_control_loop(self, update_rate=0.02):
+        """Start the PID control loop in a separate thread"""
+        if self.running:
+            return
+        
+        self.running = True
+        self.update_rate = update_rate
+        self.thread = threading.Thread(target=self._control_loop, daemon=True)
+        self.thread.start()
+    
+    def _control_loop(self):
+        """PID control loop running in separate thread"""
+        while self.running:
+            loop_start = time.time()
+            
+            with self.lock:
+                # Calculate speed
+                current_time = time.time()
+                dt = current_time - self.last_update
+                
+                if dt > 0:
+                    tick_delta = self.current_ticks - self.prev_ticks
+                    rotations = tick_delta / self.encoder_tpr
+                    distance = rotations * (2 * math.pi * self.wheel_radius)
+                    self.current_speed = distance / dt
+                    
+                    self.prev_ticks = self.current_ticks
+                    self.last_update = current_time
+                
+                # Update PID
+                self.pid.setpoint = self.target_speed
+                pwm_output = self.pid(self.current_speed)
+                
+            # Apply PWM (outside lock to minimize lock time)
+            self.motor.setSpeedPWM(pwm_output)
+            
+            # Sleep for remainder of update period
+            elapsed = time.time() - loop_start
+            sleep_time = max(0, self.update_rate - elapsed)
+            time.sleep(sleep_time)
+    
+    def stop(self):
+        """Stop the control loop and motor"""
+        self.running = False
+        if self.thread is not None and self.thread.is_alive():
+            self.thread.join(timeout=0.5)
+        self.motor.stop()
+
 # Concurrent Stepper Motor Controller
 class ConcurrentStepperMotor:
     def __init__(self, dir_pin, step_pin, name="stepper"):
@@ -289,9 +387,23 @@ class DriveController(Node):
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
 
-        # Initialize DC motor drivers in PWM_DIR mode
-        self.motor_left = CytronMD(MODE.PWM_DIR, AN1, IN1)
-        self.motor_right = CytronMD(MODE.PWM_DIR, AN2, IN2)
+        # Initialize DC motor drivers
+        motor_driver_left = CytronMD(MODE.PWM_DIR, AN1, IN1)
+        motor_driver_right = CytronMD(MODE.PWM_DIR, AN2, IN2)
+        
+        # Initialize concurrent DC motor controllers
+        self.motor_left = ConcurrentDCMotor(
+            motor_driver_left, ENCODER_TICKS_PER_REV, WHEEL_RADIUS,
+            PID_KP, PID_KI, PID_KD, name="left"
+        )
+        self.motor_right = ConcurrentDCMotor(
+            motor_driver_right, ENCODER_TICKS_PER_REV, WHEEL_RADIUS,
+            PID_KP, PID_KI, PID_KD, name="right"
+        )
+        
+        # Start DC motor control loops
+        self.motor_left.start_control_loop(PID_UPDATE_RATE)
+        self.motor_right.start_control_loop(PID_UPDATE_RATE)
 
         # Initialize concurrent stepper motors
         self.stepper_left = ConcurrentStepperMotor(DIR_LEFT, STEP_LEFT, "left")
@@ -305,109 +417,43 @@ class DriveController(Node):
         # Publisher for odometry
         self.odom_pub = self.create_publisher(Pose2D, '/odom', 10)
 
-        # PID controllers - output is PWM (-255 to 255)
-        self.pid_left = PID(PID_KP, PID_KI, PID_KD, setpoint=0)
-        self.pid_right = PID(PID_KP, PID_KI, PID_KD, setpoint=0)
-        # set software hard limit on the motor pwm output speed
-        PWM_LIMIT = int(255)
-        self.pid_left.output_limits = (-PWM_LIMIT, PWM_LIMIT)
-        self.pid_right.output_limits = (-PWM_LIMIT, PWM_LIMIT)
-
-        # Speed calculation variables
-        self.prev_left_ticks = 0
-        self.prev_right_ticks = 0
-        self.current_left_ticks = 0
-        self.current_right_ticks = 0
-        self.current_left_speed = 0.0   # m/s
-        self.current_right_speed = 0.0  # m/s
-        self.last_speed_update = time.time()
-
-        # Target speeds from joystick
-        self.target_left_speed = 0.0   # m/s
-        self.target_right_speed = 0.0  # m/s
-
         # Odometry state
         self.odom_x = 0.0
         self.odom_y = 0.0
         self.odom_theta = 0.0
         self.odom_prev_left_ticks = 0
         self.odom_prev_right_ticks = 0
+        self.current_left_ticks = 0
+        self.current_right_ticks = 0
 
-        # Create timer for PID control loop
-        self.pid_timer = self.create_timer(PID_UPDATE_RATE, self.pid_control_loop)
+        # Create timer for odometry publishing
+        self.odom_timer = self.create_timer(PID_UPDATE_RATE, self.publish_odometry)
         
-        self.get_logger().info('Motor controller initialized with CONCURRENT control')
+        self.get_logger().info('Motor controller initialized with FULLY CONCURRENT control')
         self.get_logger().info(f'PID update rate: {PID_UPDATE_RATE}s ({1/PID_UPDATE_RATE:.1f}Hz)')
         self.get_logger().info(f'PID gains: Kp={PID_KP}, Ki={PID_KI}, Kd={PID_KD}')
-        self.get_logger().info(f'Stepper control: NON-BLOCKING with interruption support')
+        self.get_logger().info(f'All 4 actuators running in independent threads')
         self.get_logger().info(f'Wheel radius: {WHEEL_RADIUS}m, Encoder TPR: {ENCODER_TICKS_PER_REV}')
 
     def left_encoder_callback(self, msg):
         """Update current left encoder tick count"""
         self.current_left_ticks = msg.data
+        self.motor_left.update_encoder(msg.data)
 
     def right_encoder_callback(self, msg):
         """Update current right encoder tick count"""
         self.current_right_ticks = msg.data
+        self.motor_right.update_encoder(msg.data)
 
-    def calculate_speed(self):
+    def publish_odometry(self):
         """
-        Calculate current motor speeds in m/s from encoder changes.
-        Should be called at a regular interval (PID_UPDATE_RATE).
+        Publish odometry at regular intervals.
         """
-        current_time = time.time()
-        dt = current_time - self.last_speed_update
-        
-        if dt <= 0:
-            return  # Avoid division by zero
-        
-        # Calculate tick changes
-        left_tick_delta = self.current_left_ticks - self.prev_left_ticks
-        right_tick_delta = self.current_right_ticks - self.prev_right_ticks
-        
-        # Calculate wheel rotations
-        left_rotations = left_tick_delta / ENCODER_TICKS_PER_REV
-        right_rotations = right_tick_delta / ENCODER_TICKS_PER_REV
-        
-        # Calculate distance traveled (circumference * rotations)
-        wheel_circumference = 2 * math.pi * WHEEL_RADIUS
-        left_distance = left_rotations * wheel_circumference
-        right_distance = right_rotations * wheel_circumference
-        
-        # Calculate speed (distance / time)
-        self.current_left_speed = left_distance / dt
-        self.current_right_speed = right_distance / dt
-        
-        # Update for next iteration
-        self.prev_left_ticks = self.current_left_ticks
-        self.prev_right_ticks = self.current_right_ticks
-        self.last_speed_update = current_time
-
-    def pid_control_loop(self):
-        """
-        Main PID control loop - runs at PID_UPDATE_RATE.
-        Calculates current speed and applies PID control.
-        """
-        # Calculate current speeds from encoder changes
-        self.calculate_speed()
-        
-        # Update PID setpoints (target speeds in m/s)
-        self.pid_left.setpoint = self.target_left_speed
-        self.pid_right.setpoint = self.target_right_speed
-        
-        # Calculate PID output (PWM values based on speed error)
-        pwm_left = self.pid_left(self.current_left_speed)
-        pwm_right = self.pid_right(self.current_right_speed)
-        
-        # Apply PWM to motors (DC motors are always responsive)
-        self.motor_left.setSpeedPWM(pwm_left)
-        self.motor_right.setSpeedPWM(pwm_right)
-        
         # Get current stepper angles (thread-safe)
         left_angle = self.stepper_left.get_current_angle()
         right_angle = self.stepper_right.get_current_angle()
         
-        # Update and publish odometry
+        # Update odometry
         self.odom_x, self.odom_y, self.odom_theta = calc_odometry(
             self.current_left_ticks, self.current_right_ticks,
             left_angle, right_angle,
@@ -415,7 +461,7 @@ class DriveController(Node):
             self.odom_x, self.odom_y, self.odom_theta,
             WHEEL_RADIUS, WHEELBASE, ENCODER_TICKS_PER_REV
         )
-        
+
         # Update previous ticks for odometry
         self.odom_prev_left_ticks = self.current_left_ticks
         self.odom_prev_right_ticks = self.current_right_ticks
@@ -426,19 +472,6 @@ class DriveController(Node):
         odom_msg.y = self.odom_y
         odom_msg.theta = self.odom_theta
         self.odom_pub.publish(odom_msg)
-        
-        # Log every 10th update to avoid spam (every 0.2s at 50Hz)
-        if not hasattr(self, '_log_counter'):
-            self._log_counter = 0
-        self._log_counter += 1
-        
-        if self._log_counter >= 10:
-            self._log_counter = 0
-            # self.get_logger().info(
-            #     f'Target: L={self.target_left_speed:.3f}m/s, R={self.target_right_speed:.3f}m/s | '
-            #     f'Actual: L={self.current_left_speed:.3f}m/s, R={self.current_right_speed:.3f}m/s | '
-            #     f'PWM: L={pwm_left:.1f}, R={pwm_right:.1f}'
-            # )
 
     def drive_callback(self, msg):
         """
@@ -446,7 +479,7 @@ class DriveController(Node):
         Expected format: [target_left_mps, target_right_mps, fl_angle, fr_angle]
         Speeds are in m/s, angles are ABSOLUTE TARGET POSITIONS in radians.
         
-        This is now completely non-blocking - all motors operate concurrently.
+        All 4 actuators operate independently in their own threads.
         """
         data = msg.data
         if len(data) != 4:
@@ -454,33 +487,32 @@ class DriveController(Node):
             return
         
         # Extract values
-        self.target_left_speed = -float(data[0])   # m/s
-        self.target_right_speed = -float(data[1])  # m/s
-        fl_angle = float(data[2])                  # radians (absolute target)
-        fr_angle = float(data[3])                  # radians (absolute target)
+        target_left_speed = -float(data[0])   # m/s
+        target_right_speed = -float(data[1])  # m/s
+        fl_angle = float(data[2])             # radians (absolute target)
+        fr_angle = float(data[3])             # radians (absolute target)
         
         self.get_logger().info(
-            f'New command - Speeds: L={self.target_left_speed:.3f}m/s, '
-            f'R={self.target_right_speed:.3f}m/s | '
+            f'New command - Speeds: L={target_left_speed:.3f}m/s, '
+            f'R={target_right_speed:.3f}m/s | '
             f'Angles: FL={fl_angle:.3f}rad, FR={fr_angle:.3f}rad'
         )
         
-        # Command steppers to move to target angles (non-blocking, interrupts previous moves)
+        # Set DC motor target speeds (applied in their own threads)
+        self.motor_left.set_target_speed(target_left_speed)
+        self.motor_right.set_target_speed(target_right_speed)
+        
+        # Command steppers to move to target angles (in their own threads)
         self.stepper_left.move_to_angle(fl_angle)
         self.stepper_right.move_to_angle(fr_angle)
-        
-        # DC motor speeds are updated via target_left/right_speed and 
-        # applied in the PID control loop which runs at 50Hz
 
     def cleanup(self):
         """Stop motors and cleanup GPIO."""
         self.get_logger().info('Cleaning up motors...')
         
-        # Stop steppers
+        # Stop all motors
         self.stepper_left.stop()
         self.stepper_right.stop()
-        
-        # Stop DC motors
         self.motor_left.stop()
         self.motor_right.stop()
         
