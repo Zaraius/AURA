@@ -5,6 +5,7 @@ from geometry_msgs.msg import Pose2D
 import RPi.GPIO as GPIO
 import time
 import math
+import threading
 from simple_pid import PID
 from aura.constants import MAX_SPEED, ENCODER_TICKS_PER_REV, WHEEL_RADIUS, WHEELBASE
 
@@ -122,21 +123,30 @@ class CytronMD:
             self.pwm1.ChangeDutyCycle(0)
             self.pwm2.ChangeDutyCycle(0)
 
-# Stepper Motor Controller class - NO SMOOTHING
-class StepperMotor:
-    def __init__(self, dir_pin, step_pin):
+# Concurrent Stepper Motor Controller
+class ConcurrentStepperMotor:
+    def __init__(self, dir_pin, step_pin, name="stepper"):
         """
-        Initialize stepper motor without smoothing.
+        Initialize stepper motor with concurrent control support.
         
         Args:
             dir_pin: GPIO pin for direction
             step_pin: GPIO pin for step signal
+            name: Name for logging
         """
         self.dir_pin = dir_pin
         self.step_pin = step_pin
+        self.name = name
         
         # Position tracking
-        self.current_angle = 0.0      # Actual current position
+        self.current_angle = 0.0      # Current position in radians
+        self.target_angle = 0.0       # Target position in radians
+        self.current_steps = 0        # Current position in steps (for fine tracking)
+        
+        # Thread control
+        self.thread = None
+        self.running = False
+        self.lock = threading.Lock()
         
         # Setup GPIO
         GPIO.setup(self.dir_pin, GPIO.OUT)
@@ -148,40 +158,87 @@ class StepperMotor:
         """Convert angle in radians to number of steps"""
         return int((angle_radians / (2 * math.pi)) * STEPS_PER_REV * STEER_STEPPER_GEAR_RATIO)
     
-    def prepare_move(self, target_angle):
+    def steps_to_radians(self, steps):
+        """Convert steps to angle in radians"""
+        return (steps / (STEPS_PER_REV * STEER_STEPPER_GEAR_RATIO)) * (2 * math.pi)
+    
+    def move_to_angle(self, target_angle):
         """
-        Prepare to move to target angle (set direction and calculate steps).
-        Returns number of steps needed.
+        Non-blocking command to move to target angle.
+        Interrupts any current movement and starts new one.
         
         Args:
-            target_angle: Target angle in radians
+            target_angle: Target angle in radians (absolute position)
         """
-        # Calculate angle difference
-        angle_diff = target_angle - self.current_angle
+        with self.lock:
+            # Stop any current movement
+            if self.running and self.thread is not None:
+                self.running = False
+                if self.thread.is_alive():
+                    self.thread.join(timeout=0.5)
+            
+            # Set new target
+            self.target_angle = target_angle
+            
+            # Start new movement thread
+            self.running = True
+            self.thread = threading.Thread(target=self._move_thread, daemon=True)
+            self.thread.start()
+    
+    def _move_thread(self):
+        """
+        Thread function that performs the actual stepping.
+        Can be interrupted by setting self.running = False.
+        """
+        # Calculate initial parameters
+        target_steps = self.radians_to_steps(self.target_angle)
+        steps_to_move = target_steps - self.current_steps
         
-        # Determine direction
-        direction = CW if angle_diff >= 0 else CCW
+        if steps_to_move == 0:
+            self.running = False
+            return
+        
+        # Set direction
+        direction = CW if steps_to_move > 0 else CCW
         GPIO.output(self.dir_pin, direction)
         
-        # Calculate steps needed
-        steps = abs(self.radians_to_steps(angle_diff))
+        # Calculate absolute steps to take
+        abs_steps = abs(steps_to_move)
+        step_direction = 1 if steps_to_move > 0 else -1
         
-        # Store target for later update
-        self.target_angle = target_angle
+        # Perform stepping with interruption checks
+        for i in range(abs_steps):
+            if not self.running:
+                # Movement interrupted - update position to where we actually are
+                break
+            
+            # Step pulse
+            GPIO.output(self.step_pin, GPIO.HIGH)
+            time.sleep(STEP_SLEEP_TIME)
+            GPIO.output(self.step_pin, GPIO.LOW)
+            time.sleep(STEP_SLEEP_TIME)
+            
+            # Update current position
+            self.current_steps += step_direction
+            self.current_angle = self.steps_to_radians(self.current_steps)
         
-        return steps
+        self.running = False
     
-    def set_step_high(self):
-        """Set step pin HIGH."""
-        GPIO.output(self.step_pin, GPIO.HIGH)
+    def get_current_angle(self):
+        """Thread-safe get current angle"""
+        with self.lock:
+            return self.current_angle
     
-    def set_step_low(self):
-        """Set step pin LOW."""
-        GPIO.output(self.step_pin, GPIO.LOW)
+    def is_moving(self):
+        """Check if stepper is currently moving"""
+        return self.running
     
-    def finalize_move(self):
-        """Update current position after move is complete."""
-        self.current_angle = self.target_angle
+    def stop(self):
+        """Stop the stepper motor immediately"""
+        with self.lock:
+            self.running = False
+            if self.thread is not None and self.thread.is_alive():
+                self.thread.join(timeout=0.5)
         
 def calc_odometry(left_ticks, right_ticks, left_angle, right_angle, 
                   prev_left_ticks, prev_right_ticks,
@@ -236,9 +293,9 @@ class DriveController(Node):
         self.motor_left = CytronMD(MODE.PWM_DIR, AN1, IN1)
         self.motor_right = CytronMD(MODE.PWM_DIR, AN2, IN2)
 
-        # Initialize stepper motors for steering - NO SMOOTHING
-        self.stepper_left = StepperMotor(DIR_LEFT, STEP_LEFT)
-        self.stepper_right = StepperMotor(DIR_RIGHT, STEP_RIGHT)
+        # Initialize concurrent stepper motors
+        self.stepper_left = ConcurrentStepperMotor(DIR_LEFT, STEP_LEFT, "left")
+        self.stepper_right = ConcurrentStepperMotor(DIR_RIGHT, STEP_RIGHT, "right")
 
         # Subscriptions - commanded topic and encoder topics
         self.create_subscription(Float64MultiArray, '/commanded', self.drive_callback, 10)
@@ -279,10 +336,10 @@ class DriveController(Node):
         # Create timer for PID control loop
         self.pid_timer = self.create_timer(PID_UPDATE_RATE, self.pid_control_loop)
         
-        self.get_logger().info('Motor controller initialized with PID speed control')
+        self.get_logger().info('Motor controller initialized with CONCURRENT control')
         self.get_logger().info(f'PID update rate: {PID_UPDATE_RATE}s ({1/PID_UPDATE_RATE:.1f}Hz)')
         self.get_logger().info(f'PID gains: Kp={PID_KP}, Ki={PID_KI}, Kd={PID_KD}')
-        self.get_logger().info(f'Stepper smoothing: DISABLED (direct control)')
+        self.get_logger().info(f'Stepper control: NON-BLOCKING with interruption support')
         self.get_logger().info(f'Wheel radius: {WHEEL_RADIUS}m, Encoder TPR: {ENCODER_TICKS_PER_REV}')
 
     def left_encoder_callback(self, msg):
@@ -342,14 +399,18 @@ class DriveController(Node):
         pwm_left = self.pid_left(self.current_left_speed)
         pwm_right = self.pid_right(self.current_right_speed)
         
-        # Apply PWM to motors
+        # Apply PWM to motors (DC motors are always responsive)
         self.motor_left.setSpeedPWM(pwm_left)
         self.motor_right.setSpeedPWM(pwm_right)
+        
+        # Get current stepper angles (thread-safe)
+        left_angle = self.stepper_left.get_current_angle()
+        right_angle = self.stepper_right.get_current_angle()
         
         # Update and publish odometry
         self.odom_x, self.odom_y, self.odom_theta = calc_odometry(
             self.current_left_ticks, self.current_right_ticks,
-            self.stepper_left.current_angle, self.stepper_right.current_angle,
+            left_angle, right_angle,
             self.odom_prev_left_ticks, self.odom_prev_right_ticks,
             self.odom_x, self.odom_y, self.odom_theta,
             WHEEL_RADIUS, WHEELBASE, ENCODER_TICKS_PER_REV
@@ -383,51 +444,41 @@ class DriveController(Node):
         """
         Process motor commands from /commanded topic.
         Expected format: [target_left_mps, target_right_mps, fl_angle, fr_angle]
-        Speeds are in m/s, angles are in radians.
+        Speeds are in m/s, angles are ABSOLUTE TARGET POSITIONS in radians.
+        
+        This is now completely non-blocking - all motors operate concurrently.
         """
         data = msg.data
         if len(data) != 4:
             self.get_logger().error('Expected 4 values in msg.data')
             return
         
-        # Extract values and update target speeds
+        # Extract values
         self.target_left_speed = -float(data[0])   # m/s
         self.target_right_speed = -float(data[1])  # m/s
-        fl_angle = float(data[2])                 # radians
-        fr_angle = float(data[3])                 # radians
-        self.get_logger().info(f'Target: L={self.target_left_speed:.3f}m/s, R={self.target_right_speed:.3f}m/s fl_angle {fl_angle} fr_angle {fr_angle}')
+        fl_angle = float(data[2])                  # radians (absolute target)
+        fr_angle = float(data[3])                  # radians (absolute target)
         
-        # Move stepper motors concurrently to target angles
-        # Prepare both motors (set direction and calculate steps)
-        steps_left = self.stepper_left.prepare_move(fl_angle)
-        steps_right = self.stepper_right.prepare_move(fr_angle)
+        self.get_logger().info(
+            f'New command - Speeds: L={self.target_left_speed:.3f}m/s, '
+            f'R={self.target_right_speed:.3f}m/s | '
+            f'Angles: FL={fl_angle:.3f}rad, FR={fr_angle:.3f}rad'
+        )
         
-        # Execute steps concurrently with proper timing
-        max_steps = max(steps_left, steps_right)
-        for i in range(max_steps):
-            # Set step pins HIGH for motors that need to step
-            if i < steps_left:
-                self.stepper_left.set_step_high()
-            if i < steps_right:
-                self.stepper_right.set_step_high()
-            
-            time.sleep(STEP_SLEEP_TIME)
-            
-            # Set step pins LOW
-            if i < steps_left:
-                self.stepper_left.set_step_low()
-            if i < steps_right:
-                self.stepper_right.set_step_low()
-            
-            time.sleep(STEP_SLEEP_TIME)
+        # Command steppers to move to target angles (non-blocking, interrupts previous moves)
+        self.stepper_left.move_to_angle(fl_angle)
+        self.stepper_right.move_to_angle(fr_angle)
         
-        # Finalize position updates
-        self.stepper_left.finalize_move()
-        self.stepper_right.finalize_move()
+        # DC motor speeds are updated via target_left/right_speed and 
+        # applied in the PID control loop which runs at 50Hz
 
     def cleanup(self):
         """Stop motors and cleanup GPIO."""
         self.get_logger().info('Cleaning up motors...')
+        
+        # Stop steppers
+        self.stepper_left.stop()
+        self.stepper_right.stop()
         
         # Stop DC motors
         self.motor_left.stop()

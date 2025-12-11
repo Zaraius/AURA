@@ -1,7 +1,5 @@
 import math
 import time
-import threading
-from concurrent.futures import ThreadPoolExecutor
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Joy
@@ -60,7 +58,7 @@ class AckermannDriveNode(Node):
         self.last_target_time = 0.0
         
         # Follower Tuning Parameters
-        self.target_offset = 0.5       # Maintain 0.5 meter distance
+        self.target_offset = 1.0       # Maintain 0.5 meter distance
         self.follow_kp_speed = 30     # P-Gain for Speed
         self.follow_kp_steer = 0.0     # P-Gain for Steering
         self.deadband_dist = 0.1       # 10cm tolerance
@@ -73,7 +71,7 @@ class AckermannDriveNode(Node):
         self.map_data = None
         self.map_info = None
         self.path = []
-        self.pp_goal_x = 2.0  # PLACEHOLDER GOAL X (Meters)
+        self.pp_goal_x = 0.5  # PLACEHOLDER GOAL X (Meters)
         self.pp_goal_y = 0.0  # PLACEHOLDER GOAL Y (Meters)
         self.pp_lookahead = 0.5
         self.pp_goal_tolerance = 0.15
@@ -84,12 +82,6 @@ class AckermannDriveNode(Node):
         self.pp_control_timer = self.create_timer(0.1, self.path_planning_loop)       # 10 Hz (PP Mode)
 
         self.get_logger().info("Ackermann Drive Node Initialized (Follow + PP Mode Ready)")
-
-        # Concurrency: Thread pool for blocking tasks, lock for shared state.
-        self._thread_pool = ThreadPoolExecutor(max_workers=2)
-        self._data_lock = threading.RLock()
-        self._pp_generating = False
-        self._pp_cancel_event = threading.Event()
 
     # ==================== ENCODER CALLBACKS ====================
     def left_encoder_callback(self, msg):
@@ -105,21 +97,15 @@ class AckermannDriveNode(Node):
 
     # ==================== PATH PLANNING CALLBACKS ====================
     def map_callback(self, msg):
-        # Thread-safe update of map
-        with self._data_lock:
-            self.map_info = msg.info
-            # Convert ROS 1D array to numpy 2D array
-            try:
-                self.map_data = np.array(msg.data).reshape((msg.info.height, msg.info.width))
-            except Exception as e:
-                self.get_logger().warn(f"PP: Failed to reshape map data: {e}")
+        self.map_info = msg.info
+        # Convert ROS 1D array to numpy 2D array
+        self.map_data = np.array(msg.data).reshape((msg.info.height, msg.info.width))
 
     # UPDATED: Callback for Pose2D
     def odom_callback(self, msg):
-        with self._data_lock:
-            self.current_x = msg.x
-            self.current_y = msg.y
-            self.current_yaw = msg.theta # Pose2D gives theta directly, no quaternion math needed
+        self.current_x = msg.x
+        self.current_y = msg.y
+        self.current_yaw = msg.theta # Pose2D gives theta directly, no quaternion math needed
 
     # ==================== MODE MANAGEMENT ====================
     def publish_mode(self):
@@ -143,15 +129,7 @@ class AckermannDriveNode(Node):
                 self.get_logger().info("Follow Mode Activated")
             elif self.mode == "PP":
                 self.get_logger().info("Path Planning Mode Activated")
-                # Generate path in background to avoid blocking other callbacks
-                # Cancel any prior generation and submit a new task
-                self._pp_cancel_event.clear()
-                if not self._pp_generating:
-                    self._pp_generating = True
-                    self._thread_pool.submit(self._generate_path_background)
-            else:
-                # Cancel any path generation if leaving PP
-                self._pp_cancel_event.set()
+                self.generate_path() # Generate path once when entering PP mode
 
     # ==================== JOYSTICK CALLBACK ====================
     def joy_callback(self, joy_msg: Joy):
@@ -289,39 +267,22 @@ class AckermannDriveNode(Node):
 
     # ==================== PATH PLANNING LOGIC ====================
     def generate_path(self):
-        """ Runs A* one time to find path from current Odom to Placeholder Goal.
-            This function is designed to be run in a background thread.
-        """
+        """ Runs A* one time to find path from current Odom to Placeholder Goal """
         if self.map_data is None:
             self.get_logger().warn("PP: No Map Data! Ensure SLAM is running.")
             return
 
-        # Copy local references under lock to avoid inconsistent reads while running
-        with self._data_lock:
-            map_info = self.map_info
-            map_data_local = np.copy(self.map_data) if self.map_data is not None else None
-            current_x = self.current_x
-            current_y = self.current_y
-            pp_goal_x = self.pp_goal_x
-            pp_goal_y = self.pp_goal_y
-
-        if map_data_local is None:
-            self.get_logger().warn("PP: No Map Data after lock copy! Ensure SLAM is running.")
-            return
-
-        start_grid = self.world_to_grid(current_x, current_y)
-        end_grid = self.world_to_grid(pp_goal_x, pp_goal_y)
+        start_grid = self.world_to_grid(self.current_x, self.current_y)
+        end_grid = self.world_to_grid(self.pp_goal_x, self.pp_goal_y)
 
         # 0 = Free, 100 = Occupied. Library expects 1=Walkable, 0=Obstacle
         # We treat anything > 50 probability as an obstacle
-        walkable_matrix = np.where(map_data_local > 50, 0, 1) 
+        walkable_matrix = np.where(self.map_data > 50, 0, 1) 
         grid = Grid(matrix=walkable_matrix)
 
         # Bounds check
-        with self._data_lock:
-            map_info_cfg = self.map_info
-        if map_info_cfg is None or not (0 <= start_grid[0] < map_info_cfg.width and 0 <= start_grid[1] < map_info_cfg.height):
-            self.get_logger().warn("PP: Start position outside map bounds.")
+        if not (0 <= start_grid[0] < self.map_info.width and 0 <= start_grid[1] < self.map_info.height):
+             self.get_logger().warn("PP: Start position outside map bounds.")
              return
 
         start_node = grid.node(start_grid[0], start_grid[1])
@@ -336,39 +297,15 @@ class AckermannDriveNode(Node):
             return
 
         # Convert back to world coords
-        new_path_world = [self.grid_to_world(p.x, p.y) for p in path_nodes]
-        with self._data_lock:
-            if self._pp_cancel_event.is_set():
-                self.get_logger().info("PP: Path generation cancelled before completion.")
-                self._pp_generating = False
-                return
-            self.path = new_path_world
-            self._pp_generating = False
+        self.path = [self.grid_to_world(p.x, p.y) for p in path_nodes]
         self.get_logger().info(f"PP: Path Generated with {len(self.path)} steps.")
-
-    def _generate_path_background(self):
-        """Background wrapper used to run generate_path from thread pool.
-           Ensures cancellation and sets generation state appropriately.
-        """
-        try:
-            if self._pp_cancel_event.is_set():
-                self.get_logger().info("PP: Path generation cancelled before start.")
-                self._pp_generating = False
-                return
-            self.generate_path()
-        except Exception as e:
-            self.get_logger().warn(f"PP: Exception during path generation: {e}")
-        finally:
-            self._pp_generating = False
 
     def path_planning_loop(self):
         """ The loop that runs when mode == PP """
         if self.mode != "PP":
             return
 
-        with self._data_lock:
-            path_copy = list(self.path) if self.path else []
-        if not path_copy:
+        if not self.path:
             self.stop()
             return
 
@@ -386,7 +323,7 @@ class AckermannDriveNode(Node):
             return
 
         # Search for lookahead point
-        for px, py in path_copy:
+        for px, py in self.path:
             dist = math.hypot(px - self.current_x, py - self.current_y)
             if dist > self.pp_lookahead:
                 target_x, target_y = px, py
@@ -414,17 +351,14 @@ class AckermannDriveNode(Node):
         front_y = self.current_y + 0.5 * math.sin(self.current_yaw)
         gx, gy = self.world_to_grid(front_x, front_y)
         
-        with self._data_lock:
-            map_info_cfg = self.map_info
-            map_data_local = self.map_data
-        if map_info_cfg and (0 <= gx < map_info_cfg.width) and (0 <= gy < map_info_cfg.height):
+        if self.map_info and (0 <= gx < self.map_info.width) and (0 <= gy < self.map_info.height):
             # Access map data (row-major order usually y * width + x, but here numpy 2d is [y,x])
-            if map_data_local is not None and map_data_local[gy, gx] > 50:
+            if self.map_data[gy, gx] > 50:
                 self.get_logger().warn("PP: Obstacle Ahead! Stopping.")
                 self.stop()
                 return
 
-        # self.get_logger().info(f"x: {self.current_x}, y: {self.current_y}, yaw: {self.current_yaw}, cmd_speed: {cmd_speed}, cmd_steer: {cmd_steer}")
+        self.get_logger().info(f"x: {self.current_x}, y: {self.current_y}, yaw: {self.current_yaw}, cmd_speed: {cmd_speed}, cmd_steer: {cmd_steer}")
         # 5. Execute
         fl_angle, fr_angle, fl_speed, fr_speed = self.calculate_ackermann(cmd_speed, cmd_steer)
 
@@ -455,24 +389,14 @@ class AckermannDriveNode(Node):
         msg = Float64MultiArray()
         msg.data = [0.0, 0.0, 0.0, 0.0]
         self.commanded_pub.publish(msg)
-        # If we're stopping and in PP mode, cancel any generation in progress
-        if self.mode != "PP":
-            self._pp_cancel_event.set()
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = AckermannDriveNode()
-    # Use MultiThreadedExecutor so timers/callbacks can run concurrently
-    executor = rclpy.executors.MultiThreadedExecutor()
-    executor.add_node(node)
-    try:
-        executor.spin()
-    finally:
-        executor.shutdown()
-        node.destroy_node()
-        rclpy.shutdown()
-    # NOTE: node destruction and shutdown done in finally block above
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
 
 
 if __name__ == '__main__':

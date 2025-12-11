@@ -15,7 +15,7 @@ MAX_STEERING_ANGLE = 0.436332 # rad, 25 deg
 # Theoretical max speed 42.56 m/s
 # THEORETICAL_MAX_SPEED = 42.56 # m/s actual measure # MAX_DRIVE_RPM_LOADED * DRIVE_MOTOR_GEAR_RATIO * WHEEL_RADIUS * 2 * 3.14159 / 60 # m/s, max forward speed with loads
 # MAX SPEED constraints the car's linear speed, when steering, it can go up to 38 m/s currently to maintain this linear speed
-MAX_SPEED_LINEAR = 0.5 # m/s limited to max linear velocity of the car
+MAX_SPEED_LINEAR = 0.5/2 # m/s limited to max linear velocity of the car
 # Actual motor's max speed at MAX_SPEED_LINEAR, including when tunring at MAX_STEERING_ANGLE, currently 38 m/s
 MAX_SPEED = 0.67 # MAX_SPEED_LINEAR * (1 + (TRACK_WIDTH * math.tan(abs(MAX_STEERING_ANGLE))) / (2 * WHEELBASE))
 
