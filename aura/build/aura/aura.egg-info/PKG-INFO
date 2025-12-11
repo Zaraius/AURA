@@ -1,0 +1,13 @@
+Metadata-Version: 2.2
+Name: aura
+Version: 0.0.0
+Summary: Aura minimal package
+Maintainer: you
+Maintainer-email: you@example.com
+License: Apache-2.0
+Requires-Dist: setuptools
+Dynamic: license
+Dynamic: maintainer
+Dynamic: maintainer-email
+Dynamic: requires-dist
+Dynamic: summary
