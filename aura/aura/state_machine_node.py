@@ -7,6 +7,7 @@ class STATE(Enum):
     MANUAL = "MANUAL"
     AUTO = "AUTO"
     STOP = "STOP"
+    PP = "PP"
 
 class StateMachineNode(Node):
     def __init__(self):

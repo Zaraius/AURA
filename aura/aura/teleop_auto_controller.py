@@ -98,12 +98,15 @@ class AckermannDriveNode(Node):
         # Determine mode based on buttons
         button_auto_pressed = len(joy_msg.buttons) > self.button_auto and joy_msg.buttons[self.button_auto]
         button_manual_pressed = len(joy_msg.buttons) > self.button_manual and joy_msg.buttons[self.button_manual]
+        button_pp_pressed = len(joy_msg.buttons) > self.button_a and joy_msg.buttons[self.button_a]
 
         # Mode priority: MANUAL > AUTO (FOLLOW) > STOP
         if button_manual_pressed:
             self.set_mode("MANUAL")
         elif button_auto_pressed:
             self.set_mode("AUTO") # Reusing AUTO string for Follow mode logic
+        elif button_pp_pressed:
+            self.set_mode("PP")
         else:
             self.set_mode("STOP")
 
