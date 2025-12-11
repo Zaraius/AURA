@@ -30,7 +30,10 @@ Then the program should be setup!
 # Nav2 Setup
 
 
-1. Make sure to `colcon build --symlink-install --packages-select aura` and `source install/setup.bash `
+1. Make sure to `colcon build --symlink-install --packages-select aura` and `source install/setup.bash`
 2. Make sure `/odom` is on, by lauching launch file
 3. run `ros2 run aura tf_broadcast`
 4. run `ros2 launch aura navigation_launch.py`
+5. run `rviz2`
+
+If ever see error: `[RTPS_TRANSPORT_SHM Error] Failed init_port fastrtps_port15203: open_and_lock_file failed -> Function open_port_internal`, run `sudo rm /dev/shm/fastrtps*`
