@@ -6,7 +6,7 @@ import RPi.GPIO as GPIO
 import time
 import math
 from simple_pid import PID
-from aura.constants import MAX_SPEED, ENCODER_TICKS_PER_REV, WHEEL_RADIUS, THEORETICAL_MAX_SPEED, WHEELBASE
+from aura.constants import MAX_SPEED, ENCODER_TICKS_PER_REV, WHEEL_RADIUS, WHEELBASE
 
 # ============================================
 # DRIVE GPIO PIN ASSIGNMENTS (BCM)
@@ -43,9 +43,9 @@ STEER_STEPPER_GEAR_RATIO = 8     # Gear ratio for steering
 # PID CONTROL PARAMETERS
 # ============================================
 PID_UPDATE_RATE = 0.02           # PID update rate in seconds (50Hz)
-PID_KP = 10.0                     # Proportional gain (tune this!)
+PID_KP = 400.0                     # Proportional gain (tune this!)
 PID_KI = 0.0                     # Integral gain (tune this!)
-PID_KD = 0.0                     # Derivative gain (tune this!)
+PID_KD = 2.0                     # Derivative gain (tune this!)
 
 # Motor driver modes
 class MODE:
@@ -252,7 +252,7 @@ class DriveController(Node):
         self.pid_left = PID(PID_KP, PID_KI, PID_KD, setpoint=0)
         self.pid_right = PID(PID_KP, PID_KI, PID_KD, setpoint=0)
         # set software hard limit on the motor pwm output speed
-        PWM_LIMIT = int(255 * MAX_SPEED / THEORETICAL_MAX_SPEED)
+        PWM_LIMIT = int(255)
         self.pid_left.output_limits = (-PWM_LIMIT, PWM_LIMIT)
         self.pid_right.output_limits = (-PWM_LIMIT, PWM_LIMIT)
 
