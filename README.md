@@ -9,7 +9,7 @@ So it automatically builds when there are file updates. However, you need to red
 
 To run the setup test launch script: `ros2 launch aura test_launch.py`
 
-# Setup Procedure
+# Setup Procedure General
 
 Make sure all devices on `OLIN-ROBOTICS` WIFI
 
@@ -26,3 +26,11 @@ Once entered docker image `ros2-mavros`, run `export ROS_DOMAIN_ID=31` to ensure
 Then run `ros2 run joy joy_node` to check joystick setup. If setup properly, it should print some log messages instead of printing nothing
 
 Then the program should be setup!
+
+# Nav2 Setup
+
+
+1. Make sure to `colcon build --symlink-install --packages-select aura` and `source install/setup.bash `
+2. Make sure `/odom` is on, by lauching launch file
+3. run `ros2 run aura tf_broadcast`
+4. run `ros2 launch aura navigation_launch.py`

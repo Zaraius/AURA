@@ -5,9 +5,11 @@ data_files = []
 data_files.append(('share/ament_index/resource_index/packages', ['resource/' + package_name]))
 data_files.append(('share/' + package_name + '/launch', ['launch/test_launch.py']))
 data_files.append(('share/' + package_name + '/launch', ['launch/auto_launch.py']))
+data_files.append(('share/' + package_name + '/launch', ['launch/navigation_launch.py']))
 data_files.append(('share/' + package_name + '/launch', ['launch/auto_w_encoder_launch.py']))
 data_files.append(('share/' + package_name + '/worlds', ['worlds/my_world.wbt']))
 data_files.append(('share/' + package_name + '/resource', ['resource/my_robot.urdf']))
+data_files.append(('share/' + package_name + '/config', ['config/nav2_params.yaml'])),
 data_files.append(('share/' + package_name, ['package.xml']))
 
 setup(
@@ -19,8 +21,10 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', ['launch/test_launch.py']),
         ('share/' + package_name + '/launch', ['launch/auto_launch.py']),
+        ('share/' + package_name + '/launch', ['launch/navigation_launch.py']),
         ('share/' + package_name + '/launch', ['launch/auto_w_encoder_launch.py']),
         ('share/' + package_name + '/worlds', ['worlds/my_world.wbt']),
+        ('share/' + package_name + '/config', ['config/nav2_params.yaml']),
         ('share/' + package_name + '/resource', ['resource/my_robot.urdf']),
     ],
     install_requires=['setuptools'],
@@ -39,6 +43,7 @@ setup(
             'controller = aura.teleop_auto_controller:main',
             'encoder = aura.rotary_encoder:main',
             'camera = aura.depth_camera:main',
+            'tf_broadcast = aura.tf_broadcast:main',
         ],
     },
 )
