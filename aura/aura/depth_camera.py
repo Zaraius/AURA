@@ -1,6 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Point
+from sensor_msgs.msg import LaserScan
 import pyrealsense2 as rs
 import numpy as np
 import cv2
@@ -18,6 +19,9 @@ class DepthCamera(Node):
         # --- SETUP PUBLISHER ---
         # Publishes: x (pixel), y (pixel), z (meters)
         self.publisher_ = self.create_publisher(Point, '/target', 10)
+        
+        # --- NEW SCAN PUBLISHER ---
+        self.scan_publisher_ = self.create_publisher(LaserScan, '/scan', 10)
         
         # --- REALSENSE CONFIGURATION ---
         self.pipeline = rs.pipeline()
@@ -108,6 +112,39 @@ class DepthCamera(Node):
                 
                 # We found the best target, stop looking at other contours
                 break
+
+        # --- PUBLISH SCAN DATA ---
+        self.publish_scan(depth_frame)
+
+    def publish_scan(self, depth_frame):
+        """Publishes depth readings as a LaserScan message."""
+        scan_msg = LaserScan()
+        scan_msg.header.stamp = self.get_clock().now().to_msg()
+        scan_msg.header.frame_id = "camera_depth_frame"
+        
+        # Sample the middle row of the depth image (horizontal scan)
+        width = 640
+        height = 480
+        center_row = height // 2
+        
+        # Extract depth values from center row
+        ranges = []
+        for x in range(width):
+            dist = depth_frame.get_distance(x, center_row)
+            ranges.append(float(dist) if dist > 0 else float('inf'))
+        
+        # Configure LaserScan parameters
+        # FOV of RealSense is approximately 87 degrees horizontal
+        scan_msg.angle_min = -np.pi / 4  # -45 degrees
+        scan_msg.angle_max = np.pi / 4   # +45 degrees
+        scan_msg.angle_increment = (scan_msg.angle_max - scan_msg.angle_min) / width
+        scan_msg.time_increment = 0.0
+        scan_msg.scan_time = 0.033  # 30Hz
+        scan_msg.range_min = 0.1
+        scan_msg.range_max = 10.0
+        scan_msg.ranges = ranges
+        
+        self.scan_publisher_.publish(scan_msg)
 
     def __del__(self):
         self.pipeline.stop()

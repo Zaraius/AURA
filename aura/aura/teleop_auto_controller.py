@@ -71,10 +71,11 @@ class AckermannDriveNode(Node):
         self.map_data = None
         self.map_info = None
         self.path = []
-        self.pp_goal_x = 0.5  # PLACEHOLDER GOAL X (Meters)
-        self.pp_goal_y = 0.0  # PLACEHOLDER GOAL Y (Meters)
+        self.pp_goal_x = 1.0  # PLACEHOLDER GOAL X (Meters)
+        self.pp_goal_y = 1.0  # PLACEHOLDER GOAL Y (Meters)
         self.pp_lookahead = 0.5
         self.pp_goal_tolerance = 0.15
+        self.reverse_angle_threshold = math.pi / 2  # 90 degrees - go backwards if target is more than this behind
 
         # Timers
         self.mode_timer = self.create_timer(0.1, self.publish_mode)
@@ -299,66 +300,104 @@ class AckermannDriveNode(Node):
         # Convert back to world coords
         self.path = [self.grid_to_world(p.x, p.y) for p in path_nodes]
         self.get_logger().info(f"PP: Path Generated with {len(self.path)} steps.")
+        self.get_logger().info(f"PP: Start: ({self.current_x:.2f}, {self.current_y:.2f}), Goal: ({self.pp_goal_x:.2f}, {self.pp_goal_y:.2f})")
+        if len(self.path) > 0:
+            self.get_logger().info(f"PP: First point: {self.path[0]}, Last point: {self.path[-1]}")
+
+    def normalize_angle(self, angle):
+        """Normalize angle to [-pi, pi]"""
+        while angle > math.pi:
+            angle -= 2.0 * math.pi
+        while angle < -math.pi:
+            angle += 2.0 * math.pi
+        return angle
 
     def path_planning_loop(self):
         """ The loop that runs when mode == PP """
         if self.mode != "PP":
             return
 
-        if not self.path:
-            self.stop()
-            return
-
-        # 1. Pure Pursuit Logic
-        # Find lookahead point
-        target_x, target_y = self.path[-1] # Default to end
+        # Check if we reached goal first
+        dist_to_goal = math.hypot(self.pp_goal_x - self.current_x, self.pp_goal_y - self.current_y)
         
-        # Check if we reached goal
-        dist_to_final = math.hypot(target_x - self.current_x, target_y - self.current_y)
-        if dist_to_final < self.pp_goal_tolerance:
+        if dist_to_goal < self.pp_goal_tolerance:
             self.get_logger().info("PP: Goal Reached")
             self.stop()
-            self.path = [] # Clear path
+            self.path = []
             self.set_mode("STOP")
             return
 
-        # Search for lookahead point
-        for px, py in self.path:
-            dist = math.hypot(px - self.current_x, py - self.current_y)
-            if dist > self.pp_lookahead:
-                target_x, target_y = px, py
-                break
+        # For now, just target the goal directly (ignore complex path following)
+        # TODO: Implement proper path following with obstacle avoidance later
+        target_x = self.pp_goal_x
+        target_y = self.pp_goal_y
 
-        # 2. Calculate Steering
-        angle_to_target = math.atan2(target_y - self.current_y, target_x - self.current_x)
+        # Transform target to robot's coordinate frame
+        dx = target_x - self.current_x
+        dy = target_y - self.current_y
         
-        # Normalize angle error (-pi to pi)
-        angle_error = angle_to_target - self.current_yaw
-        while angle_error > math.pi: angle_error -= 2.0 * math.pi
-        while angle_error < -math.pi: angle_error += 2.0 * math.pi
+        # Rotate to robot frame
+        cos_yaw = math.cos(-self.current_yaw)
+        sin_yaw = math.sin(-self.current_yaw)
+        target_x_robot = dx * cos_yaw - dy * sin_yaw
+        target_y_robot = dx * sin_yaw + dy * cos_yaw
+        
+        # Calculate angle to target in robot frame
+        alpha = math.atan2(target_y_robot, target_x_robot)
+        
+        # Distance to target (lookahead distance)
+        lookahead_dist = math.hypot(target_x_robot, target_y_robot)
+        
+        # Determine if we should go backwards
+        go_backwards = abs(alpha) > self.reverse_angle_threshold
+        
+        if go_backwards:
+            # Adjust alpha for reverse driving (target is behind us)
+            alpha = self.normalize_angle(alpha + math.pi if alpha < 0 else alpha - math.pi)
+            cmd_speed = -MAX_SPEED_LINEAR  # Negative speed for reverse
+            direction = "REVERSE"
+            
+            # Pure Pursuit steering for Ackermann (with reverse sign)
+            # steering_angle = atan(2 * L * sin(alpha) / lookahead)
+            if lookahead_dist > 0.01:  # Avoid division by zero
+                cmd_steer = -math.atan(2.0 * WHEELBASE * math.sin(alpha) / lookahead_dist)
+            else:
+                cmd_steer = 0.0
+        else:
+            # Normal forward motion
+            cmd_speed = MAX_SPEED_LINEAR
+            direction = "FORWARD"
+            
+            # Pure Pursuit steering for Ackermann
+            # steering_angle = atan(2 * L * sin(alpha) / lookahead)
+            if lookahead_dist > 0.01:  # Avoid division by zero
+                cmd_steer = math.atan(2.0 * WHEELBASE * math.sin(alpha) / lookahead_dist)
+            else:
+                cmd_steer = 0.0
 
-        # 3. Simple Control
-        # P-Controller for steering
-        cmd_steer = angle_error * 1.5 
-        cmd_speed = MAX_SPEED_LINEAR * 0.5 # Half speed for safety
-
-        # Clamp
+        # Clamp steering to physical limits
         cmd_steer = max(-MAX_STEERING_ANGLE, min(MAX_STEERING_ANGLE, cmd_steer))
 
-        # 4. Obstacle Safety Check (Front of robot)
-        # Look 0.5m ahead
-        front_x = self.current_x + 0.5 * math.cos(self.current_yaw)
-        front_y = self.current_y + 0.5 * math.sin(self.current_yaw)
-        gx, gy = self.world_to_grid(front_x, front_y)
+        # 4. Obstacle Safety Check
+        # Check in the direction we're moving (front if forward, back if reverse)
+        check_distance = 0.5 if not go_backwards else -0.5
+        check_x = self.current_x + check_distance * math.cos(self.current_yaw)
+        check_y = self.current_y + check_distance * math.sin(self.current_yaw)
+        gx, gy = self.world_to_grid(check_x, check_y)
         
         if self.map_info and (0 <= gx < self.map_info.width) and (0 <= gy < self.map_info.height):
-            # Access map data (row-major order usually y * width + x, but here numpy 2d is [y,x])
             if self.map_data[gy, gx] > 50:
-                self.get_logger().warn("PP: Obstacle Ahead! Stopping.")
+                self.get_logger().warn(f"PP: Obstacle in {direction} direction! Stopping.")
                 self.stop()
                 return
 
-        self.get_logger().info(f"x: {self.current_x}, y: {self.current_y}, yaw: {self.current_yaw}, cmd_speed: {cmd_speed}, cmd_steer: {cmd_steer}")
+        self.get_logger().info(
+            f"{direction} | pos: ({self.current_x:.2f}, {self.current_y:.2f}) "
+            f"yaw: {math.degrees(self.current_yaw):.1f}° | target: ({target_x:.2f}, {target_y:.2f}) "
+            f"alpha: {math.degrees(alpha):.1f}° | dist: {dist_to_goal:.2f}m "
+            f"speed: {cmd_speed:.2f} steer: {math.degrees(cmd_steer):.1f}°"
+        )
+
         # 5. Execute
         fl_angle, fr_angle, fl_speed, fr_speed = self.calculate_ackermann(cmd_speed, cmd_steer)
 

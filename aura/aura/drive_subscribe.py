@@ -337,44 +337,61 @@ class ConcurrentStepperMotor:
             self.running = False
             if self.thread is not None and self.thread.is_alive():
                 self.thread.join(timeout=0.5)
-        
+                
+def normalize_angle(angle):
+    """Normalize angle to range [-pi, pi]"""
+    while angle > math.pi:
+        angle -= 2.0 * math.pi
+    while angle < -math.pi:
+        angle += 2.0 * math.pi
+    return angle
+
 def calc_odometry(left_ticks, right_ticks, left_angle, right_angle, 
                   prev_left_ticks, prev_right_ticks,
                   current_x, current_y, current_theta,
                   wheel_radius, wheelbase_length, ticks_per_rev):
     """
-    Calculate odometry for front-wheel drive Ackermann robot.
-    NOTE: theta represents the direction the robot is trying to go (average front wheel direction).
+    Calculate odometry for rear-wheel drive Ackermann robot using Bicycle Model.
+    
+    Args:
+        wheelbase_length: Distance between FRONT and REAR axles (meters)
     """
     
+    # 1. Calculate distance traveled by each rear wheel
     distance_per_tick = (2 * math.pi * wheel_radius) / ticks_per_rev
-    
     delta_left_ticks = left_ticks - prev_left_ticks
     delta_right_ticks = right_ticks - prev_right_ticks
     
-    left_distance = delta_left_ticks * distance_per_tick
-    right_distance = delta_right_ticks * distance_per_tick
-    front_distance = (left_distance + right_distance) / 2.0
+    d_left = delta_left_ticks * distance_per_tick
+    d_right = delta_right_ticks * distance_per_tick
     
-    # Theta is just the average of the front wheel angles (the direction wheels are pointing)
-    avg_steering_angle = (left_angle + right_angle) / 2.0
-    new_theta = avg_steering_angle
-    new_theta = math.atan2(math.sin(new_theta), math.cos(new_theta))  # Normalize to [-pi, pi]
+    # Average distance traveled by the center of the rear axle
+    dist_traveled = (d_left + d_right) / 2.0
     
-    if abs(avg_steering_angle) < 1e-6 or abs(front_distance) < 1e-6:
-        # Straight wheels or no movement
-        delta_x = front_distance * math.cos(new_theta)
-        delta_y = front_distance * math.sin(new_theta)
+    # 2. Calculate average steering angle (delta)
+    # We use the average of the two front steppers to approximate the "virtual" center wheel
+    steering_angle = (left_angle + right_angle) / 2.0
+    
+    # 3. Calculate change in heading (theta)
+    # Kinematic equation: delta_theta = (distance / length) * tan(steering_angle)
+    if abs(math.tan(steering_angle)) < 1e-6:
+        # moving straight
+        delta_theta = 0
     else:
-        # Turning motion
-        turn_radius = wheelbase_length / math.tan(avg_steering_angle)
-        
-        # Calculate arc length and position change based on wheel direction
-        delta_x = front_distance * math.cos(new_theta)
-        delta_y = front_distance * math.sin(new_theta)
+        delta_theta = (dist_traveled / wheelbase_length) * math.tan(steering_angle)
     
+    # 4. Calculate new pose
+    # We use the "Runge-Kutta 2nd order" (midpoint) approximation for better accuracy 
+    # by adding half the turn angle to the current heading for the position update.
+    avg_theta = current_theta + (delta_theta / 2.0)
+    
+    delta_x = dist_traveled * math.cos(avg_theta)
+    delta_y = dist_traveled * math.sin(avg_theta)
+    
+    # Update state
     new_x = current_x + delta_x
     new_y = current_y + delta_y
+    new_theta = normalize_angle(current_theta + delta_theta)
     
     return new_x, new_y, new_theta
 
