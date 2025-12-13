@@ -2,12 +2,18 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray, Int32
 from geometry_msgs.msg import Pose2D
+from sensor_msgs.msg import LaserScan
 import RPi.GPIO as GPIO
 import time
 import math
 import threading
 from simple_pid import PID
 from aura.constants import MAX_SPEED, ENCODER_TICKS_PER_REV, WHEEL_RADIUS, WHEELBASE
+
+# ============================================
+# SAFETY CONSTANTS
+# ============================================
+MIN_SAFE_DISTANCE = 0.6  
 
 # ============================================
 # DRIVE GPIO PIN ASSIGNMENTS (BCM)
@@ -430,6 +436,12 @@ class DriveController(Node):
         self.create_subscription(Float64MultiArray, '/commanded', self.drive_callback, 10)
         self.create_subscription(Int32, '/left_encoder', self.left_encoder_callback, 10)
         self.create_subscription(Int32, '/right_encoder', self.right_encoder_callback, 10)
+        
+        # Subscription for laser scan (obstacle detection)
+        self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
+        
+        # Obstacle detection state
+        self.min_dis = float('inf')  # Minimum distance from laser scan
 
         # Publisher for odometry
         self.odom_pub = self.create_publisher(Pose2D, '/odom', 10)
@@ -451,6 +463,7 @@ class DriveController(Node):
         self.get_logger().info(f'PID gains: Kp={PID_KP}, Ki={PID_KI}, Kd={PID_KD}')
         self.get_logger().info(f'All 4 actuators running in independent threads')
         self.get_logger().info(f'Wheel radius: {WHEEL_RADIUS}m, Encoder TPR: {ENCODER_TICKS_PER_REV}')
+        self.get_logger().info(f'Obstacle detection enabled with MIN_SAFE_DISTANCE: {MIN_SAFE_DISTANCE}m')
 
     def left_encoder_callback(self, msg):
         """Update current left encoder tick count"""
@@ -461,6 +474,17 @@ class DriveController(Node):
         """Update current right encoder tick count"""
         self.current_right_ticks = msg.data
         self.motor_right.update_encoder(msg.data)
+
+    def scan_callback(self, msg):
+        """Process laser scan data to detect obstacles"""
+        # Filter out invalid ranges (inf and nan values)
+        valid_ranges = [r for r in msg.ranges if not math.isinf(r) and not math.isnan(r)]
+        
+        # Calculate minimum distance from valid ranges
+        if valid_ranges:
+            self.min_dis = min(valid_ranges)
+        else:
+            self.min_dis = float('inf')  # No valid readings
 
     def publish_odometry(self):
         """
@@ -509,19 +533,32 @@ class DriveController(Node):
         fl_angle = float(data[2])             # radians (absolute target)
         fr_angle = float(data[3])             # radians (absolute target)
         
+        
         self.get_logger().info(
             f'New command - Speeds: L={target_left_speed:.3f}m/s, '
             f'R={target_right_speed:.3f}m/s | '
-            f'Angles: FL={fl_angle:.3f}rad, FR={fr_angle:.3f}rad'
+            f'Angles: FL={fl_angle:.3f}rad, FR={fr_angle:.3f}rad | '
+            f'Min dist: {self.min_dis:.3f}m'
         )
+        
+        # Command steppers to move to target angles (in their own threads)
+        self.stepper_left.move_to_angle(fl_angle)
+        self.stepper_right.move_to_angle(fr_angle)
+
+        # SAFETY CHECK: Obstacle detection
+        if self.min_dis < MIN_SAFE_DISTANCE:
+            self.get_logger().warn(
+                f'OBSTACLE DETECTED! Min distance: {self.min_dis:.3f}m < {MIN_SAFE_DISTANCE}m - STOPPING'
+            )
+            # Stop all motors
+            self.motor_left.set_target_speed(0.0)
+            self.motor_right.set_target_speed(0.0)
+            return
         
         # Set DC motor target speeds (applied in their own threads)
         self.motor_left.set_target_speed(target_left_speed)
         self.motor_right.set_target_speed(target_right_speed)
         
-        # Command steppers to move to target angles (in their own threads)
-        self.stepper_left.move_to_angle(fl_angle)
-        self.stepper_right.move_to_angle(fr_angle)
 
     def cleanup(self):
         """Stop motors and cleanup GPIO."""

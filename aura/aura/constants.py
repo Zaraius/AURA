@@ -19,4 +19,4 @@ MAX_SPEED_LINEAR = 0.5/2 # m/s limited to max linear velocity of the car
 # Actual motor's max speed at MAX_SPEED_LINEAR, including when tunring at MAX_STEERING_ANGLE, currently 38 m/s
 MAX_SPEED = 0.67 # MAX_SPEED_LINEAR * (1 + (TRACK_WIDTH * math.tan(abs(MAX_STEERING_ANGLE))) / (2 * WHEELBASE))
 
-ENCODER_TICKS_PER_REV = 1200
+ENCODER_TICKS_PER_REV = 1100
