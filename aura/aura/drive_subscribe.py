@@ -545,8 +545,8 @@ class DriveController(Node):
         self.stepper_left.move_to_angle(fl_angle)
         self.stepper_right.move_to_angle(fr_angle)
 
-        # SAFETY CHECK: Obstacle detection
-        if self.min_dis < MIN_SAFE_DISTANCE:
+        # SAFETY CHECK: Obstacle detection. IT IS FINE TO BACK UP
+        if target_left_speed < 0 and self.min_dis < MIN_SAFE_DISTANCE:
             self.get_logger().warn(
                 f'OBSTACLE DETECTED! Min distance: {self.min_dis:.3f}m < {MIN_SAFE_DISTANCE}m - STOPPING'
             )
