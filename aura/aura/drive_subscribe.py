@@ -13,7 +13,7 @@ from aura.constants import MAX_SPEED, ENCODER_TICKS_PER_REV, WHEEL_RADIUS, WHEEL
 # ============================================
 # SAFETY CONSTANTS
 # ============================================
-MIN_SAFE_DISTANCE = 0.6  
+MIN_SAFE_DISTANCE = 0.001 
 
 # ============================================
 # DRIVE GPIO PIN ASSIGNMENTS (BCM)

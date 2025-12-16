@@ -6,6 +6,66 @@ import pyrealsense2 as rs
 import numpy as np
 import cv2
 
+# --- KALMAN FILTER CLASS ---
+class KalmanTracker:
+    def __init__(self):
+        # State: [x, y, z, dx, dy, dz]
+        # Measurement: [x, y, z]
+        self.kf = cv2.KalmanFilter(6, 3)
+
+        # H Matrix (Measurement)
+        self.kf.measurementMatrix = np.array([
+            [1, 0, 0, 0, 0, 0],
+            [0, 1, 0, 0, 0, 0],
+            [0, 0, 1, 0, 0, 0]
+        ], np.float32)
+
+        # F Matrix (Transition/Physics)
+        self.kf.transitionMatrix = np.array([
+            [1, 0, 0, 1, 0, 0], 
+            [0, 1, 0, 0, 1, 0], 
+            [0, 0, 1, 0, 0, 1], 
+            [0, 0, 0, 1, 0, 0], 
+            [0, 0, 0, 0, 1, 0], 
+            [0, 0, 0, 0, 0, 1]  
+        ], np.float32)
+
+        # Q and R Matrices (Tuning Knobs)
+        # processNoiseCov (Q): How erratic is the motion? (Lower = smoother, Higher = more responsive)
+        self.kf.processNoiseCov = np.eye(6, dtype=np.float32) * 0.03
+        
+        # measurementNoiseCov (R): How noisy is the camera?
+        self.kf.measurementNoiseCov = np.eye(3, dtype=np.float32) * 0.5
+        
+        self.found = False
+        self.missed_frames = 0
+        self.max_coast_frames = 15 # Coast for ~0.5 seconds
+
+    def update(self, measurement):
+        """Correct filter with real data"""
+        mes = np.array([[np.float32(measurement[0])], 
+                        [np.float32(measurement[1])], 
+                        [np.float32(measurement[2])]])
+        self.kf.correct(mes)
+        prediction = self.kf.predict()
+        self.found = True
+        self.missed_frames = 0
+        return (int(prediction[0]), int(prediction[1]), float(prediction[2]))
+
+    def predict(self):
+        """Coast on physics (no data)"""
+        if not self.found:
+            return None 
+            
+        self.missed_frames += 1
+        if self.missed_frames > self.max_coast_frames:
+            self.found = False
+            return None
+            
+        prediction = self.kf.predict()
+        return (int(prediction[0]), int(prediction[1]), float(prediction[2]))
+
+# --- ROS 2 NODE ---
 class DepthCamera(Node):
     def __init__(self):
         super().__init__('depth_camera')
@@ -15,39 +75,42 @@ class DepthCamera(Node):
         self.declare_parameter('min_area', 50)
         self.declare_parameter('max_area', 10000)
         self.declare_parameter('max_distance', 2.75) 
-        self.declare_parameter('min_distance', 0.1)
-        # --- SETUP PUBLISHER ---
-        # Publishes: x (pixel), y (pixel), z (meters)
-        self.publisher_ = self.create_publisher(Point, '/target', 10)
-        
-        # --- NEW SCAN PUBLISHER ---
+        self.declare_parameter('min_distance', 0.001)
+
+        # --- PUBLISHERS ---
+        self.publisher_ = self.create_publisher(Point, '/tracker/target', 10)
         self.scan_publisher_ = self.create_publisher(LaserScan, '/scan', 10)
         
+        # --- TRACKER ---
+        self.tracker = KalmanTracker()
+
         # --- REALSENSE CONFIGURATION ---
         self.pipeline = rs.pipeline()
         self.config = rs.config()
         
-        # Stream Infrared (Left) and Depth
+        # Stream Infrared and Depth at 30 FPS
         self.config.enable_stream(rs.stream.infrared, 1, 640, 480, rs.format.y8, 30)
         self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
         
-        # Start Camera
         try:
             self.profile = self.pipeline.start(self.config)
             self.configure_emitter()
-            self.get_logger().info("Camera Started. Emitter set to Max Power.")
+            self.get_logger().info("Camera Started. Kalman Filter Active.")
         except Exception as e:
             self.get_logger().error(f"Could not start camera: {e}")
             return
+
+        # Kernel for morphology
+        self.kernel = np.ones((10,10), np.uint8)
 
         # Run Loop at 30Hz
         self.timer = self.create_timer(0.033, self.process_frame)
 
     def configure_emitter(self):
-        """Forces the IR Projector to MAX power to light up the reflector."""
+        """Forces the IR Projector to MAX power."""
         depth_sensor = self.profile.get_device().first_depth_sensor()
         if depth_sensor.supports(rs.option.emitter_enabled):
-            depth_sensor.set_option(rs.option.emitter_enabled, 1) # ON
+            depth_sensor.set_option(rs.option.emitter_enabled, 1)
             
         if depth_sensor.supports(rs.option.laser_power):
             max_laser = depth_sensor.get_option_range(rs.option.laser_power).max
@@ -60,28 +123,29 @@ class DepthCamera(Node):
         
         if not ir_frame or not depth_frame: return
 
-        # 1. Convert to Numpy
         ir_image = np.asanyarray(ir_frame.get_data())
 
-        # Get Parameters (in case you want to tune live)
+        # Get Parameters
         thresh_val = self.get_parameter('ir_threshold').value
         min_area = self.get_parameter('min_area').value
         max_area = self.get_parameter('max_area').value
         max_dist = self.get_parameter('max_distance').value
         min_dist = self.get_parameter('min_distance').value
 
-        # 2. Threshold
+        # --- VISION PIPELINE ---
+        # 1. Threshold
         _, mask = cv2.threshold(ir_image, thresh_val, 255, cv2.THRESH_BINARY)
-        kernel = np.ones((10,10), np.uint8)
-
-        # 3. Morphology (Connect the dots)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         
-        # 4. Find Contours
+        # 2. Morphology (Fix Starry Sky)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.kernel)
+        
+        # 3. Find Contours
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
+        raw_measurement = None
+
         if contours:
-            # Sort by area, largest first
+            # Sort by area
             sorted_contours = sorted(contours, key=cv2.contourArea, reverse=True)
             
             for c in sorted_contours:
@@ -99,19 +163,34 @@ class DepthCamera(Node):
                 # Filter 2: Distance Check
                 dist = depth_frame.get_distance(cx, cy)
                 
-                # Logic: Reject 0.0 (too close/blinded) and Too Far
+                # Filter 3: Range Check
                 if dist < min_dist or dist > max_dist:
                     continue
 
-                # --- TARGET FOUND ---
-                msg = Point()
-                msg.x = float(cx)
-                msg.y = float(cy)
-                msg.z = float(dist)
-                self.publisher_.publish(msg)
-                
-                # We found the best target, stop looking at other contours
-                break
+                # Valid Target Found
+                raw_measurement = (cx, cy, dist)
+                break 
+
+        # --- KALMAN FILTER UPDATE ---
+        final_target = None
+
+        if raw_measurement:
+            # We see it -> Correct the filter
+            final_target = self.tracker.update(raw_measurement)
+        else:
+            # We don't see it -> Predict (Coast)
+            final_target = self.tracker.predict()
+            if final_target:
+                # Optional: Log warning if coasting
+                pass 
+
+        # --- PUBLISH TARGET ---
+        if final_target:
+            msg = Point()
+            msg.x = float(final_target[0])
+            msg.y = float(final_target[1])
+            msg.z = float(final_target[2])
+            self.publisher_.publish(msg)
 
         # --- PUBLISH SCAN DATA ---
         self.publish_scan(depth_frame)
@@ -122,7 +201,6 @@ class DepthCamera(Node):
         scan_msg.header.stamp = self.get_clock().now().to_msg()
         scan_msg.header.frame_id = "camera_depth_frame"
         
-        # Sample the middle row of the depth image (horizontal scan)
         width = 640
         height = 480
         center_row = height // 2
@@ -131,16 +209,15 @@ class DepthCamera(Node):
         ranges = []
         for x in range(width):
             dist = depth_frame.get_distance(x, center_row)
-            ranges.append(float(dist) if dist > 0 else float('inf'))
+            ranges.append(float(dist) if dist > 0 else float(0.01))
         
-        # Configure LaserScan parameters
-        # FOV of RealSense is approximately 87 degrees horizontal
-        scan_msg.angle_min = -np.pi / 4  # -45 degrees
-        scan_msg.angle_max = np.pi / 4   # +45 degrees
+        # Configure LaserScan
+        scan_msg.angle_min = -np.pi / 4  # -45 deg
+        scan_msg.angle_max = np.pi / 4   # +45 deg
         scan_msg.angle_increment = (scan_msg.angle_max - scan_msg.angle_min) / width
         scan_msg.time_increment = 0.0
-        scan_msg.scan_time = 0.033  # 30Hz
-        scan_msg.range_min = 0.1
+        scan_msg.scan_time = 0.033
+        scan_msg.range_min = 0.001
         scan_msg.range_max = 10.0
         scan_msg.ranges = ranges
         

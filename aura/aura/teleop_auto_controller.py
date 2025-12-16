@@ -29,7 +29,7 @@ class AckermannDriveNode(Node):
         self.joy_sub = self.create_subscription(Joy, '/joy', self.joy_callback, 10)
         self.left_encoder_sub = self.create_subscription(Int32, '/left_encoder', self.left_encoder_callback, 10)
         self.right_encoder_sub = self.create_subscription(Int32, '/right_encoder', self.right_encoder_callback, 10)
-        self.target_sub = self.create_subscription(Point, '/target', self.target_callback, 10)
+        self.target_sub = self.create_subscription(Point, '/tracker/target', self.target_callback, 10)
         
         self.map_sub = self.create_subscription(OccupancyGrid, '/map', self.map_callback, 10)
         self.odom_sub = self.create_subscription(Pose2D, '/odom', self.odom_callback, 10)
@@ -59,8 +59,8 @@ class AckermannDriveNode(Node):
         
         # Follower Tuning Parameters
         self.target_offset = 1.0       # Maintain 0.5 meter distance
-        self.follow_kp_speed = 30     # P-Gain for Speed
-        self.follow_kp_steer = 5.0     # P-Gain for Steering
+        self.follow_kp_speed = 0.25     # P-Gain for Speed
+        self.follow_kp_steer = 2.0     # P-Gain for Steering
         self.deadband_dist = 0.1       # 10cm tolerance
         self.vision_timeout = 0.5      # Stop if no target seen for 0.5s
 
@@ -81,7 +81,10 @@ class AckermannDriveNode(Node):
         self.mode_timer = self.create_timer(0.1, self.publish_mode)
         self.follow_control_timer = self.create_timer(0.05, self.follow_control_loop)  # 20 Hz
         self.pp_control_timer = self.create_timer(0.1, self.path_planning_loop)       # 10 Hz (PP Mode)
-
+        self.camera_x_offset = -0.15 
+        
+        # Steering Reversal Fix (-1 to flip direction)
+        self.steering_direction = -1.0
         self.get_logger().info("Ackermann Drive Node Initialized (Follow + PP Mode Ready)")
 
     # ==================== ENCODER CALLBACKS ====================
@@ -213,50 +216,68 @@ class AckermannDriveNode(Node):
 
     # ==================== FOLLOWER CONTROL ====================
     def follow_control_loop(self):
-        """Non-blocking timer callback for Vision Following"""
-        # Only run if we are in AUTO mode
-        if self.mode != "AUTO":
-            return
-
-        # 1. Safety Check: Have we heard from the camera recently?
+        if self.mode != "AUTO": return
         if (time.time() - self.last_target_time) > self.vision_timeout:
-            # Timeout - stop the robot
             self.stop()
             return
-
+        
         target = self.latest_target
         if target is None or target.z == 0.0:
             self.stop()
             return
 
-        # --- STEERING CONTROL (P-Controller) ---
-        # Image Center = 320. 
-        # Left (x < 320) -> Error positive -> Turn Left
-        # Right (x > 320) -> Error negative -> Turn Right
-        steer_error = -(320.0 - target.x) / 320.0 # invert it because camera is mounted upside down
-        cmd_steer = steer_error * self.follow_kp_steer
-
-        # --- SPEED CONTROL (P-Controller with Offset) ---
-        # Target Offset = 1.0m
-        # If z = 3.0m -> Error = 2.0 -> Speed Positive (Forward)
-        # If z = 0.5m -> Error = -0.5 -> Speed Negative (Backward)
-        dist_error = target.z - self.target_offset
+        # --- 1. CALCULATE LATERAL X (Meters) IN CAMERA FRAME ---
+        # RealSense FOV is ~87 degrees horizontal.
+        hfov_rad = math.radians(87)
         
-        # Deadband to prevent jitter when standing still
+        # Pixel Error: Center(320) - TargetX
+        # Positive = Target is Left of image center
+        # Negative = Target is Right of image center
+        pixel_error = (320.0 - target.x)
+        
+        # Convert pixels to angle
+        alpha_cam = (pixel_error / 320.0) * (hfov_rad / 2.0)
+        
+        # Calculate X (Side-to-Side) distance in meters relative to Camera
+        # x_cam is how far LEFT the target is
+        x_cam = target.z * math.tan(alpha_cam)
+
+        # --- 2. TRANSFORM TO ROBOT CENTER ---
+        # Robot X = Camera X + Offset
+        # Example: Target is straight ahead of Robot (x=0).
+        # Camera (at -0.15) sees target at x_cam = +0.15 (Right).
+        # x_robot = 0.15 + (-0.15) = 0.0. (Correct!)
+        x_robot = x_cam + self.camera_x_offset
+        
+        # Z is Forward distance
+        z_robot = target.z 
+
+        # --- 3. GEOMETRIC STEERING (PURE PURSUIT) ---
+        # Lookahead Distance squared (Hypotenuse)
+        lookahead_sq = (x_robot**2) + (z_robot**2)
+        
+        # Curvature = 2 * x / L^2
+        curvature = (2.0 * x_robot) / lookahead_sq
+        
+        # Steering Angle = arctan(Wheelbase * Curvature)
+        raw_steer = math.atan(WHEELBASE * curvature)
+
+        # Apply Direction Fix & Dampening (0.75)
+        cmd_steer = raw_steer * self.steering_direction * 0.75
+
+        # --- SPEED CONTROL ---
+        dist_error = target.z - self.target_offset
         if abs(dist_error) < self.deadband_dist:
             cmd_speed = 0.0
         else:
             cmd_speed = dist_error * self.follow_kp_speed
 
-        # --- CLAMPING ---
+        # --- CLAMPING & PUBLISHING ---
         cmd_speed = max(-MAX_SPEED_LINEAR, min(MAX_SPEED_LINEAR, cmd_speed))
         cmd_steer = max(-MAX_STEERING_ANGLE, min(MAX_STEERING_ANGLE, cmd_steer))
 
-        # --- EXECUTE ---
-        # Calculate individual wheel params
         fl_angle, fr_angle, fl_speed, fr_speed = self.calculate_ackermann(cmd_speed, cmd_steer)
 
-        # Publish commands
         cmd_msg = Float64MultiArray()
         cmd_msg.data = [fl_speed, fr_speed, fl_angle, fr_angle]
         self.commanded_pub.publish(cmd_msg)
