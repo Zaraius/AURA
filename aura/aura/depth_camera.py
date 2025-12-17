@@ -71,7 +71,7 @@ class DepthCamera(Node):
         super().__init__('depth_camera')
 
         # --- TUNABLE PARAMETERS ---
-        self.declare_parameter('ir_threshold', 245)
+        self.declare_parameter('ir_threshold', 253)
         self.declare_parameter('min_area', 50)
         self.declare_parameter('max_area', 10000)
         self.declare_parameter('max_distance', 2.75) 
@@ -89,8 +89,8 @@ class DepthCamera(Node):
         self.config = rs.config()
         
         # Stream Infrared and Depth at 30 FPS
-        self.config.enable_stream(rs.stream.infrared, 1, 640, 480, rs.format.y8, 30)
-        self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+        self.config.enable_stream(rs.stream.infrared, 1, 640, 480, rs.format.y8, 15)
+        self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 15)
         
         try:
             self.profile = self.pipeline.start(self.config)
@@ -117,7 +117,7 @@ class DepthCamera(Node):
             depth_sensor.set_option(rs.option.laser_power, max_laser)
 
     def process_frame(self):
-        frames = self.pipeline.wait_for_frames()
+        frames = self.pipeline.wait_for_frames(timeout_ms=1000)
         ir_frame = frames.get_infrared_frame(1)
         depth_frame = frames.get_depth_frame()
         

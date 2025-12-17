@@ -26,3 +26,17 @@ Once entered docker image `ros2-mavros`, run `export ROS_DOMAIN_ID=31` to ensure
 Then run `ros2 run joy joy_node` to check joystick setup. If setup properly, it should print some log messages instead of printing nothing
 
 Then the program should be setup!
+
+
+docker run -it --rm \
+  --name ros2-joy \
+  --network host \
+  --privileged \
+  --device /dev/input/js0:/dev/input/js0 \
+  -v /home/zaraius/ros2_ws:/root/ros2_ws \
+  ros:humble-ros-base
+
+apt update
+apt install -y ros-humble-joy joystick
+source /opt/ros/humble/setup.bash
+ros2 run joy joy_node
